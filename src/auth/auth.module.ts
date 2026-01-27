@@ -13,6 +13,7 @@ import { UsersModule } from 'src/users/users.module';
 import { UserLoginLog } from './entities/user-login-log.entity';
 import { User } from 'src/users/entities/user.entity';
 import { UserSession } from './entities/user-session.entity';
+import { GmailOauthController } from './gmail-oauth.controller';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { UserSession } from './entities/user-session.entity';
     TypeOrmModule.forFeature([UserLoginLog, User, UserSession]),
     UsersModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, GmailOauthController],
   providers: [AuthService, JwtStrategy, AuthEventsService, GoogleStrategy],
   exports: [AuthService, AuthEventsService],
 })
