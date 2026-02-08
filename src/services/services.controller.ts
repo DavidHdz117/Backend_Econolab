@@ -1,10 +1,11 @@
-import {Controller, Get, Post, Body, Param, Query, Put, Delete, UseGuards,} from '@nestjs/common';
+import {Controller, Get, Post, Body, Param, Query, Put, Delete, UseGuards, Res,} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ServicesService } from './services.service';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import { UpdateServiceStatusDto } from './dto/update-service-status.dto';
 import { ServiceStatus } from './entities/service-order.entity';
+import { Response } from 'express';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('services')
@@ -42,6 +43,28 @@ export class ServicesController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.servicesService.findOne(+id);
+  }
+
+  @Get(':id/receipt')
+  async downloadReceipt(@Param('id') id: string, @Res() res: Response) {
+    const buffer = await this.servicesService.generateReceiptPdf(+id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename=\"recibo-${id}.pdf\"`,
+    );
+    res.send(buffer);
+  }
+
+  @Get(':id/labels')
+  async downloadLabels(@Param('id') id: string, @Res() res: Response) {
+    const buffer = await this.servicesService.generateTubeLabelsPdf(+id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename=\"etiquetas-${id}.pdf\"`,
+    );
+    res.send(buffer);
   }
 
   @Get('folio/:folio')

@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException, } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  ServiceOrder,
-  ServiceOrderItem,
-} from '../services/entities/service-order.entity';
+import PDFDocument from 'pdfkit';
+import fs from 'fs';
+import * as QRCode from 'qrcode';
+import {ServiceOrder,ServiceOrderItem,} from '../services/entities/service-order.entity';
 import { StudyDetail } from '../studies/entities/study-detail.entity';
 import { StudyResult, StudyResultValue } from './entities/study-result.entity';
 import { CreateStudyResultDto } from './dto/create-study-result.dto';
@@ -45,6 +45,327 @@ export class ResultsService {
       value: dto.value,
       sortOrder: dto.sortOrder,
       visible: dto.visible,
+    });
+  }
+
+  private async buildQrBuffer(result: StudyResult): Promise<Buffer | null> {
+    const template = process.env.LAB_QR_URL ?? '';
+    const base = process.env.LAB_QR_BASE_URL ?? '';
+    const path =
+      process.env.LAB_QR_PATH ?? `/results/${result.id}`;
+
+    let url = template;
+    if (!url && base) {
+      url = `${base.replace(/\/$/, '')}${path}`;
+    }
+    if (!url) return null;
+
+    const finalUrl = url.includes('{id}')
+      ? url.replace('{id}', String(result.id))
+      : url;
+
+    try {
+      return await QRCode.toBuffer(finalUrl, {
+        type: 'png',
+        width: 140,
+        margin: 1,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private async buildPdfBuffer(result: StudyResult): Promise<Buffer> {
+    const qrBuffer = await this.buildQrBuffer(result);
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ margin: 48, size: 'A4' });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('error', (err) => reject(err));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      const labName = process.env.LAB_NAME ?? 'ECONOLAB';
+      const labSubtitle =
+        process.env.LAB_SUBTITLE ?? 'LABORATORIO DE ANÁLISIS CLÍNICOS';
+      const labAddress = process.env.LAB_ADDRESS ?? 'Dirección no configurada';
+      const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
+      const labPhone = process.env.LAB_PHONE ?? 'Teléfono no configurado';
+      const labEmail = process.env.LAB_EMAIL ?? 'Correo no configurado';
+      const labSchedule = process.env.LAB_SCHEDULE ?? 'Horario no configurado';
+      const labSampleSchedule =
+        process.env.LAB_SAMPLE_SCHEDULE ?? 'Horario de toma no configurado';
+      const logoPath = process.env.LAB_LOGO_PATH ?? '';
+      const signaturePath = process.env.LAB_SIGNATURE_PATH ?? '';
+      const responsibleName =
+        process.env.LAB_RESPONSIBLE_NAME ?? 'Responsable Sanitario';
+      const responsibleLicense =
+        process.env.LAB_RESPONSIBLE_LICENSE ?? '';
+
+      const service = result.serviceOrder;
+      const patient = service?.patient;
+      const doctor = service?.doctor;
+
+      const studyName =
+        result.serviceOrderItem?.studyNameSnapshot ?? 'Estudio';
+
+      const formatDate = (value?: Date) => {
+        if (!value) return 'N/D';
+        try {
+          return new Date(value).toLocaleString('es-MX');
+        } catch {
+          return new Date(value).toISOString();
+        }
+      };
+
+      const calcAge = (birthDate?: string) => {
+        if (!birthDate) return 'N/D';
+        const birth = new Date(birthDate);
+        if (Number.isNaN(birth.getTime())) return 'N/D';
+        const today = new Date();
+        let age = today.getFullYear() - birth.getFullYear();
+        const m = today.getMonth() - birth.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+          age -= 1;
+        }
+        return `${age} años`;
+      };
+
+      // Header (logo + lab info + folio/sucursal)
+      const headerTop = doc.y;
+      const logoBox = { x: 48, y: headerTop, w: 90, h: 50 };
+      if (logoPath && fs.existsSync(logoPath)) {
+        doc.image(logoPath, logoBox.x, logoBox.y, {
+          fit: [logoBox.w, logoBox.h],
+        });
+      } else {
+        doc
+          .rect(logoBox.x, logoBox.y, logoBox.w, logoBox.h)
+          .strokeColor('#cccccc')
+          .stroke();
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#666666')
+          .text('LOGO', logoBox.x, logoBox.y + 18, {
+            width: logoBox.w,
+            align: 'center',
+          })
+          .fillColor('black');
+      }
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(14)
+        .text(labName, 150, headerTop, { align: 'center' });
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .text(labSubtitle, 150, headerTop + 16, { align: 'center' })
+        .text(labAddress, 150, headerTop + 28, { align: 'center' })
+        .text(labAddress2, 150, headerTop + 38, { align: 'center' });
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(9)
+        .text(`SUC: ${service?.branchName ?? 'N/D'}`, 380, headerTop, {
+          align: 'right',
+        })
+        .text(`FOLIO: ${service?.folio ?? 'N/D'}`, 380, headerTop + 14, {
+          align: 'right',
+        });
+
+      doc.moveDown(3.6);
+      doc
+        .moveTo(48, doc.y)
+        .lineTo(547, doc.y)
+        .strokeColor('#bbbbbb')
+        .stroke();
+      doc.moveDown(0.8);
+
+      // Patient / Order info
+      doc.font('Helvetica-Bold').fontSize(9).text('PACIENTE', 48, doc.y);
+      doc.font('Helvetica').fontSize(9);
+      doc.text(
+        `Nombre: ${patient ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim() : 'N/D'}`,
+        48,
+        doc.y + 12,
+      );
+      doc.text(`Edad: ${calcAge(patient?.birthDate)}`, 48, doc.y + 24);
+      doc.text(`Sexo: ${patient?.gender ?? 'N/D'}`, 48, doc.y + 36);
+      doc.text(
+        `Dirección: ${patient?.addressLine ?? 'N/D'}`,
+        48,
+        doc.y + 48,
+      );
+
+      doc.font('Helvetica-Bold').fontSize(9).text('MÉDICO', 300, doc.y - 60);
+      doc.font('Helvetica').fontSize(9);
+      doc.text(
+        `Nombre: ${doctor ? `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`.trim() : 'N/D'}`,
+        300,
+        doc.y - 48,
+      );
+      doc.text(
+        `Cédula: ${doctor?.licenseNumber ?? 'N/D'}`,
+        300,
+        doc.y - 36,
+      );
+      doc.text(
+        `Especialidad: ${doctor?.specialty ?? 'N/D'}`,
+        300,
+        doc.y - 24,
+      );
+      doc.text(
+        `Fecha de toma: ${formatDate(result.sampleAt ?? service?.sampleAt)}`,
+        300,
+        doc.y - 12,
+      );
+      doc.text(`Fecha de entrega: ${formatDate(result.reportedAt)}`, 300);
+
+      doc.moveDown(2.4);
+      doc
+        .moveTo(48, doc.y)
+        .lineTo(547, doc.y)
+        .strokeColor('#bbbbbb')
+        .stroke();
+      doc.moveDown(0.6);
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text(`ESTUDIO: ${studyName}`, { align: 'center' });
+      doc.moveDown(0.2);
+      if (result.method) {
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .text(`Método: ${result.method}`, { align: 'center' });
+      }
+      if (result.observations) {
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .text(`Observaciones: ${result.observations}`, { align: 'center' });
+      }
+      doc.moveDown(0.8);
+
+      // Table header
+      const tableStartY = doc.y;
+      const colX = { label: 48, value: 280, unit: 380, ref: 460 };
+
+      const drawTableHeader = () => {
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(10)
+          .text('Parámetro', colX.label, doc.y)
+          .text('Resultado', colX.value, doc.y)
+          .text('Unidad', colX.unit, doc.y)
+          .text('Referencia', colX.ref, doc.y);
+        doc.moveDown(0.4);
+        doc
+          .moveTo(48, doc.y)
+          .lineTo(547, doc.y)
+          .strokeColor('#cccccc')
+          .stroke();
+        doc.moveDown(0.3);
+      };
+
+      const ensureSpace = (needed: number) => {
+        if (doc.y + needed > 760) {
+          doc.addPage();
+          drawTableHeader();
+        }
+      };
+
+      drawTableHeader();
+
+      const values = (result.values ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+      doc.font('Helvetica').fontSize(10);
+      for (const v of values) {
+        ensureSpace(18);
+        doc.text(v.label ?? 'N/D', colX.label, doc.y, { width: 220 });
+        doc.text(v.value ?? '', colX.value, doc.y, { width: 90 });
+        doc.text(v.unit ?? '', colX.unit, doc.y, { width: 70 });
+        doc.text(v.referenceValue ?? '', colX.ref, doc.y, { width: 90 });
+        doc.moveDown(0.6);
+      }
+
+      // Footer / signature
+      doc.moveDown(1.2);
+      const footerY = doc.y;
+
+      // QR area
+      if (qrBuffer) {
+        doc.image(qrBuffer, 48, footerY, { width: 70, height: 70 });
+      } else {
+        doc
+          .rect(48, footerY, 70, 70)
+          .strokeColor('#cccccc')
+          .stroke();
+        doc
+          .font('Helvetica')
+          .fontSize(7)
+          .fillColor('#666666')
+          .text('QR', 48, footerY + 28, { width: 70, align: 'center' })
+          .fillColor('black');
+      }
+      doc
+        .font('Helvetica')
+        .fontSize(7)
+        .text('Escanea para validar', 48, footerY + 56, {
+          width: 70,
+          align: 'center',
+        });
+
+      // Contact info
+      doc
+        .font('Helvetica')
+        .fontSize(8)
+        .text(labSchedule, 130, footerY + 4)
+        .text(labSampleSchedule, 130, footerY + 16)
+        .text(`Email: ${labEmail}`, 130, footerY + 28)
+        .text(`Tel: ${labPhone}`, 130, footerY + 40);
+
+      // Signature area
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .text('ATENTAMENTE', 360, footerY + 6, { align: 'right' });
+
+      if (signaturePath && fs.existsSync(signaturePath)) {
+        doc.image(signaturePath, 360, footerY + 14, {
+          fit: [160, 50],
+          align: 'right',
+        });
+      }
+
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .text('______________________________', 360, footerY + 38, {
+          align: 'right',
+        })
+        .text(responsibleName, 360, footerY + 52, {
+          align: 'right',
+        });
+
+      if (responsibleLicense) {
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .text(`Céd. Prof. ${responsibleLicense}`, 360, footerY + 64, {
+            align: 'right',
+          });
+      }
+
+      doc.moveDown(5);
+      doc
+        .font('Helvetica')
+        .fontSize(8)
+        .text('Este resultado es confidencial y forma parte del expediente clínico.');
+
+      doc.end();
     });
   }
 
@@ -113,6 +434,21 @@ export class ResultsService {
       throw new NotFoundException('Resultado de estudio no encontrado.');
     }
     return result;
+  }
+
+  async generatePdf(id: number) {
+    const result = await this.resultRepo.findOne({
+      where: { id, isActive: true },
+      relations: {
+        serviceOrder: { patient: true, doctor: true, items: true },
+        serviceOrderItem: true,
+        values: true,
+      },
+    });
+    if (!result) {
+      throw new NotFoundException('Resultado de estudio no encontrado.');
+    }
+    return this.buildPdfBuffer(result);
   }
 
   async findByServiceItem(serviceOrderItemId: number) {
