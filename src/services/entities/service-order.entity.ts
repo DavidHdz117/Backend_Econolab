@@ -10,7 +10,7 @@ export enum ServiceStatus {
     CANCELLED = 'cancelled',    // CANCELADO
 }
 
-@Entity('service_orders')
+@Entity({ name: 'service_orders', schema: 'operativo' })
 @Index('idx_service_order_patient', ['patientId'])
 @Index('idx_service_order_doctor', ['doctorId'])
 @Index('idx_service_order_status', ['status'])
@@ -89,7 +89,7 @@ export class ServiceOrder {
 }
 
 // Necesitamos la clase aquí por el circular import
-@Entity('service_order_items')
+@Entity({ name: 'service_order_items', schema: 'operativo' })
 export class ServiceOrderItem {
     @PrimaryGeneratedColumn()
     id: number;

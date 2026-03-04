@@ -1,6 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { google, gmail_v1 } from 'googleapis';
+import { Transporter } from 'nodemailer';
+import { MAILER_TRANSPORT } from './constants';
 
 export interface EmailPayload {
   nombre: string;
@@ -10,63 +16,48 @@ export interface EmailPayload {
 
 @Injectable()
 export class MailService {
-  private oauth2: any;
-  private gmail: gmail_v1.Gmail;
+  private readonly logger = new Logger(MailService.name);
 
-  constructor(private readonly config: ConfigService) {
-    this.oauth2 = new google.auth.OAuth2(
-      this.config.get('GOOGLE_CLIENT_ID'),
-      this.config.get('GOOGLE_CLIENT_SECRET'),
-      this.config.get('GOOGLE_REDIRECT_URI'),
-    );
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(MAILER_TRANSPORT)
+    private readonly transporter: Transporter,
+  ) {}
 
-    this.oauth2.setCredentials({
-      refresh_token: this.config.get('GOOGLE_REFRESH_TOKEN'),
-    });
-
-    this.gmail = google.gmail({ version: 'v1', auth: this.oauth2 });
-  }
-
-  // 🔹 método interno para enviar
   private async sendEmail(to: string, subject: string, html: string) {
-    const fromEmail = this.config.get('GMAIL_USER');
+    const fromEmail = this.config.get<string>('GMAIL_USER');
     const fromName = 'Econolab Huejutla';
 
-    const message =
-      `From: ${fromName} <${fromEmail}>\r\n` +
-      `To: ${to}\r\n` +
-      `Subject: ${subject}\r\n` +
-      `MIME-Version: 1.0\r\n` +
-      `Content-Type: text/html; charset="UTF-8"\r\n\r\n` +
-      html;
+    if (!fromEmail) {
+      throw new ServiceUnavailableException('GMAIL_USER no esta configurado');
+    }
 
-    const raw = Buffer.from(message)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/g, '');
-
-    await this.gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw },
-    });
+    try {
+      await this.transporter.sendMail({
+        from: `${fromName} <${fromEmail}>`,
+        to,
+        subject,
+        html,
+      });
+    } catch (error) {
+      this.logger.error('Fallo al enviar correo', error as Error);
+      throw new ServiceUnavailableException(
+        'No se pudo enviar el correo en este momento',
+      );
+    }
   }
-
-  // =========================
-  // TUS MÉTODOS (IGUALES)
-  // =========================
 
   async sendConfirmationEmail({ nombre, email, token }: EmailPayload) {
     await this.sendEmail(
       email,
-      'Econolab Huejutla – Confirma tu cuenta',
+      'Econolab Huejutla - Confirma tu cuenta',
       `
-        <p>Hola ${nombre}, has creado tu cuenta en Econolab Huejutla, ya casi está lista.</p>
+        <p>Hola ${nombre}, has creado tu cuenta en Econolab Huejutla, ya casi esta lista.</p>
         <p>Visita el siguiente enlace:</p>
         <a href="${this.config.get('FRONTEND_URL')}/auth/confirm-account">
           Confirmar cuenta
         </a>
-        <p>e ingresa el código: <b>${token}</b></p>
+        <p>e ingresa el codigo: <b>${token}</b></p>
       `,
     );
   }
@@ -74,14 +65,14 @@ export class MailService {
   async sendPasswordResetToken({ nombre, email, token }: EmailPayload) {
     await this.sendEmail(
       email,
-      'Econolab Huejutla – Restablece tu contraseña',
+      'Econolab Huejutla - Restablece tu contrasena',
       `
-        <p>Hola ${nombre}, has solicitado restablecer tu contraseña.</p>
+        <p>Hola ${nombre}, has solicitado restablecer tu contrasena.</p>
         <p>Visita el siguiente enlace:</p>
         <a href="${this.config.get('FRONTEND_URL')}/auth/new-password">
-          Restablecer contraseña
+          Restablecer contrasena
         </a>
-        <p>e ingresa el código: <b>${token}</b></p>
+        <p>e ingresa el codigo: <b>${token}</b></p>
       `,
     );
   }
@@ -91,15 +82,15 @@ export class MailService {
 
     await this.sendEmail(
       email,
-      'Econolab Huejutla – Código de verificación',
+      'Econolab Huejutla - Codigo de verificacion',
       `
         <p>Hola ${nombre},</p>
-        <p>Tu código de verificación es:</p>
+        <p>Tu codigo de verificacion es:</p>
         <h2 style="font-size: 24px; margin: 10px 0; color: #333;">
           ${code}
         </h2>
-        <p>Ingresa este código para continuar con tu verificación.</p>
-        <p>Si no solicitaste este código, puedes ignorar este mensaje.</p>
+        <p>Ingresa este codigo para continuar con tu verificacion.</p>
+        <p>Si no solicitaste este codigo, puedes ignorar este mensaje.</p>
       `,
     );
   }

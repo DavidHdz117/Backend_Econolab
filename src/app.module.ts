@@ -12,6 +12,8 @@ import { DoctorsModule } from './doctors/doctors.module';
 import { StudiesModule } from './studies/studies.module';
 import { ServicesModule } from './services/services.module';
 import { ResultsModule } from './results/results.module';
+import { DatabaseModule } from './database/database.module';
+import { DbAdminModule } from './db-admin/db-admin.module';
 
 @Module({
   imports: [
@@ -30,8 +32,10 @@ import { ResultsModule } from './results/results.module';
     StudiesModule,
     ServicesModule,
     ResultsModule,
+    DatabaseModule,
+    DbAdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

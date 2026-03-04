@@ -6,7 +6,7 @@ export enum PatientGender {
     OTHER = 'other',
 }
 
-@Entity('patients')
+@Entity({ name: 'patients', schema: 'operativo' })
 @Unique(['documentType', 'documentNumber'])
 export class Patient {
     @PrimaryGeneratedColumn()
@@ -22,7 +22,7 @@ export class Patient {
     @Column({ length: 100, nullable: true })
     middleName?: string;
 
-    @Column({ type: 'enum', enum: PatientGender })
+    @Column({ type: 'enum', enum: PatientGender, default: PatientGender.OTHER })
     gender: PatientGender;
 
     @Column({ type: 'date' })

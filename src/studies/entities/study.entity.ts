@@ -11,7 +11,7 @@ export enum StudyStatus {
     SUSPENDED = 'suspended',
 }
 
-@Entity('studies')
+@Entity({ name: 'studies', schema: 'operativo' })
 export class Study {
     @PrimaryGeneratedColumn()
     id: number;
