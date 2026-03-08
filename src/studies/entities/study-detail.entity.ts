@@ -6,7 +6,7 @@ export enum StudyDetailType {
     PARAMETER = 'parameter', // parámetro concreto (ej. HEMOGLOBINA)
 }
 
-@Entity({ name: 'study_details', schema: 'operativo' })
+@Entity({ name: 'study_details' })
 export class StudyDetail {
     @PrimaryGeneratedColumn()
     id: number;

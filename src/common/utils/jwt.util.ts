@@ -18,7 +18,7 @@ export function generateJWT(payload: AppJwtPayload): string {
   if (!secret) throw new Error('Falta la variable de entorno JWT_SECRET');
 
   return jwt.sign(payload, secret as Secret, {
-    expiresIn: '15m',     // o el tiempo que prefieras
+    expiresIn: '30d',
     algorithm: 'HS256',
   });
 }

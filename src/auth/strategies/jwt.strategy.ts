@@ -47,11 +47,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Sesión revocada');
     }
 
-    // 4) expirada en BD (además de exp del JWT)
-    if (session.expiresAt < new Date()) {
-      throw new UnauthorizedException('Sesión expirada');
-    }
-
     const { user } = session;
 
     // Lo que se inyecta en req.user

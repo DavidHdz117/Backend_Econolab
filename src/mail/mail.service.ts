@@ -77,21 +77,4 @@ export class MailService {
     );
   }
 
-  async sendMfaCode(payload: { nombre: string; email: string; code: string }) {
-    const { nombre, email, code } = payload;
-
-    await this.sendEmail(
-      email,
-      'Econolab Huejutla - Codigo de verificacion',
-      `
-        <p>Hola ${nombre},</p>
-        <p>Tu codigo de verificacion es:</p>
-        <h2 style="font-size: 24px; margin: 10px 0; color: #333;">
-          ${code}
-        </h2>
-        <p>Ingresa este codigo para continuar con tu verificacion.</p>
-        <p>Si no solicitaste este codigo, puedes ignorar este mensaje.</p>
-      `,
-    );
-  }
 }

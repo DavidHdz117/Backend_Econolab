@@ -1,6 +1,6 @@
 import {Column, CreateDateColumn, UpdateDateColumn, Entity, PrimaryGeneratedColumn, Index, Unique} from 'typeorm';
 
-@Entity({ name: 'doctors', schema: 'operativo' })
+@Entity({ name: 'doctors' })
 @Unique(['licenseNumber'])
 export class Doctor {
     @PrimaryGeneratedColumn()

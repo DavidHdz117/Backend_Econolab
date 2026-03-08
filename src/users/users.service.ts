@@ -252,32 +252,6 @@ export class UsersService {
     return record?.rol ?? null;
   }
 
-  async setMfaCode(user: User, code: string, minutes = 10): Promise<User> {
-    const now = new Date();
-    user.mfaCode = code;
-    user.mfaCodeExpiresAt = new Date(now.getTime() + minutes * 60 * 1000);
-    // si no quieres date-fns:
-    // const expires = new Date();
-    // expires.setMinutes(expires.getMinutes() + minutes);
-    // user.mfaCodeExpiresAt = expires;
-
-    return this.userRepository.save(user);
-  }
-
-  async clearMfaCode(user: User): Promise<User> {
-    user.mfaCode = null;
-    user.mfaCodeExpiresAt = null;
-    return this.userRepository.save(user);
-  }
-
-  async sendMfaCodeEmail(user: User, code: string) {
-    await this.mailService.sendMfaCode({
-      nombre: user.nombre,
-      email: user.email,
-      code,
-    });
-  }
-
   async registerFromGoogleAsAdmin(data: {
     nombre: string;
     email: string;

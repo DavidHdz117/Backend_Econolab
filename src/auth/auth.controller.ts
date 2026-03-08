@@ -6,7 +6,6 @@ import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { VerifyMfaDto } from './entities/verify-mfa.dto';
 @UsePipes(new ValidationPipe({ transform: true }))
 @Controller('auth')
 export class AuthController {
@@ -21,14 +20,6 @@ export class AuthController {
     const ua = (req.headers['user-agent'] as string) || undefined;
     const ip = (req.ip as string) || undefined;
     return this.auth.login(dto, ip, ua);
-  }
-
-  /* ───────── Verificación MFA para admins ───────── */
-  @Post('mfa/verify')
-  verifyMfa(@Req() req, @Body() dto: VerifyMfaDto) {
-    const ua = (req.headers['user-agent'] as string) || undefined;
-    const ip = (req.ip as string) || undefined;
-    return this.auth.verifyMfa(dto, ip, ua);
   }
 
   /* ───────── OAuth2 con Google ───────── */

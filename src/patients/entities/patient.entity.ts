@@ -6,7 +6,7 @@ export enum PatientGender {
     OTHER = 'other',
 }
 
-@Entity({ name: 'patients', schema: 'operativo' })
+@Entity({ name: 'patients' })
 @Unique(['documentType', 'documentNumber'])
 export class Patient {
     @PrimaryGeneratedColumn()
