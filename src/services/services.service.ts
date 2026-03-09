@@ -8,8 +8,8 @@ import { UpdateServiceStatusDto } from './dto/update-service-status.dto';
 import { Patient } from '../patients/entities/patient.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
 import { Study } from '../studies/entities/study.entity';
-import PDFDocument from 'pdfkit';
-import fs from 'fs';
+import PDFDocument = require('pdfkit');
+import * as fs from 'fs';
 import * as bwipjs from 'bwip-js';
 
 @Injectable()
@@ -29,19 +29,25 @@ export class ServicesService {
 
   // --------- Helpers ---------
 
+  private toNumber(value: unknown): number {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   private getPriceByType(study: Study, type: ServiceItemPriceType): number {
     switch (type) {
       case ServiceItemPriceType.DIF:
-        return study.difPrice;
+        return this.toNumber(study.difPrice);
       case ServiceItemPriceType.SPECIAL:
-        return study.specialPrice;
+        return this.toNumber(study.specialPrice);
       case ServiceItemPriceType.HOSPITAL:
-        return study.hospitalPrice;
+        return this.toNumber(study.hospitalPrice);
       case ServiceItemPriceType.OTHER:
-        return study.otherPrice;
+        return this.toNumber(study.otherPrice);
       case ServiceItemPriceType.NORMAL:
       default:
-        return study.normalPrice;
+        return this.toNumber(study.normalPrice);
     }
   }
 
@@ -76,9 +82,9 @@ export class ServicesService {
     return `${age} años`;
   }
 
-  private formatMoney(value: number) {
-    if (Number.isNaN(value)) return '$0.00';
-    return `$ ${value.toFixed(2)}`;
+  private formatMoney(value: unknown) {
+    const amount = this.toNumber(value);
+    return `$ ${amount.toFixed(2)}`;
   }
 
   private mapPriceTypeLabel(type: ServiceItemPriceType) {
@@ -248,16 +254,18 @@ export class ServicesService {
 
       doc.font('Helvetica').fontSize(9);
       for (const item of service.items ?? []) {
-        const lineTotal = item.subtotalAmount ?? 0;
+        const lineTotal = this.toNumber(item.subtotalAmount);
+        const unitPrice = this.toNumber(item.unitPrice);
+        const itemDiscount = this.toNumber(item.discountPercent);
         doc.text(this.truncate(item.studyNameSnapshot ?? ''), colX.name, doc.y, {
           width: 240,
         });
         doc.text(this.mapPriceTypeLabel(item.priceType), colX.type, doc.y);
-        doc.text(this.formatMoney(item.unitPrice ?? 0), colX.price, doc.y, {
+        doc.text(this.formatMoney(unitPrice), colX.price, doc.y, {
           width: 60,
           align: 'right',
         });
-        doc.text(`${item.discountPercent ?? 0} %`, colX.discount, doc.y, {
+        doc.text(`${itemDiscount} %`, colX.discount, doc.y, {
           width: 50,
           align: 'right',
         });
@@ -277,10 +285,10 @@ export class ServicesService {
       doc.moveDown(0.4);
 
       doc.font('Helvetica').fontSize(9);
-      const subtotal = service.subtotalAmount ?? 0;
-      const courtesy = service.courtesyPercent ?? 0;
-      const discount = service.discountAmount ?? 0;
-      const total = service.totalAmount ?? 0;
+      const subtotal = this.toNumber(service.subtotalAmount);
+      const courtesy = this.toNumber(service.courtesyPercent);
+      const discount = this.toNumber(service.discountAmount);
+      const total = this.toNumber(service.totalAmount);
 
       doc.text('SUBTOTAL:', 380, doc.y, { align: 'right' });
       doc.text(this.formatMoney(subtotal), 510, doc.y, { align: 'right' });
@@ -365,7 +373,7 @@ export class ServicesService {
         const patientName = patient
           ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim()
           : 'N/D';
-        const gender = patient?.gender ?? 'N/D';
+        const gender = patient?.gender === 'male' ? 'Masculino' : 'Femenino';
         const age = this.calcAge(patient?.birthDate);
 
         doc
@@ -656,8 +664,9 @@ export class ServicesService {
 
     // Si solo cambió cortesía, ajustamos totales sin tocar los ítems
     if (dto.courtesyPercent !== undefined) {
-      const subtotal = merged.subtotalAmount;
-      const discount = subtotal * (merged.courtesyPercent / 100);
+      const subtotal = this.toNumber(merged.subtotalAmount);
+      const courtesy = this.toNumber(merged.courtesyPercent);
+      const discount = subtotal * (courtesy / 100);
       merged.discountAmount = discount;
       merged.totalAmount = subtotal - discount;
     }
@@ -694,5 +703,10 @@ export class ServicesService {
   async generateTubeLabelsPdf(id: number) {
     const service = await this.findOne(id);
     return this.buildLabelsPdfBuffer(service);
+  }
+
+  async generateTicketPdf(id: number) {
+    const service = await this.findOne(id);
+    return this.buildReceiptPdfBuffer(service);
   }
 }

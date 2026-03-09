@@ -35,6 +35,14 @@ export class PatientsService {
         'gender',
         'birthDate',
         'phone',
+        'email',
+        'createdAt',
+        'addressBetween',
+        'addressCity',
+        'addressState',
+        'addressZip',
+        'documentType',
+        'documentNumber',
       ],
     });
 
