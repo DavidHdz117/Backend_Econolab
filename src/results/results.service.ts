@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException, } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import PDFDocument from 'pdfkit';
-import fs from 'fs';
+import PDFDocument = require('pdfkit');
+import * as fs from 'fs';
 import * as QRCode from 'qrcode';
 import {ServiceOrder,ServiceOrderItem,} from '../services/entities/service-order.entity';
 import { StudyDetail } from '../studies/entities/study-detail.entity';
@@ -80,6 +80,22 @@ export class ResultsService {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 48, size: 'A4' });
       const chunks: Buffer[] = [];
+      const drawImageIfValid = (
+        imagePath: string,
+        x: number,
+        y: number,
+        options: Record<string, unknown>,
+      ): boolean => {
+        if (!imagePath || !fs.existsSync(imagePath)) {
+          return false;
+        }
+        try {
+          doc.image(imagePath, x, y, options);
+          return true;
+        } catch {
+          return false;
+        }
+      };
 
       doc.on('data', (chunk) => chunks.push(chunk));
       doc.on('error', (err) => reject(err));
@@ -107,21 +123,21 @@ export class ResultsService {
       const doctor = service?.doctor;
 
       const studyName =
-        result.serviceOrderItem?.studyNameSnapshot ?? 'Estudio';
+        result.serviceOrderItem?.studyNameSnapshot ?? '';
 
       const formatDate = (value?: Date) => {
-        if (!value) return 'N/D';
+        if (!value) return '';
         try {
           return new Date(value).toLocaleString('es-MX');
         } catch {
-          return new Date(value).toISOString();
+          return '';
         }
       };
 
       const calcAge = (birthDate?: string) => {
-        if (!birthDate) return 'N/D';
+        if (!birthDate) return '';
         const birth = new Date(birthDate);
-        if (Number.isNaN(birth.getTime())) return 'N/D';
+        if (Number.isNaN(birth.getTime())) return '';
         const today = new Date();
         let age = today.getFullYear() - birth.getFullYear();
         const m = today.getMonth() - birth.getMonth();
@@ -131,239 +147,138 @@ export class ResultsService {
         return `${age} años`;
       };
 
-      // Header (logo + lab info + folio/sucursal)
-      const headerTop = doc.y;
-      const logoBox = { x: 48, y: headerTop, w: 90, h: 50 };
-      if (logoPath && fs.existsSync(logoPath)) {
-        doc.image(logoPath, logoBox.x, logoBox.y, {
-          fit: [logoBox.w, logoBox.h],
-        });
-      } else {
-        doc
-          .rect(logoBox.x, logoBox.y, logoBox.w, logoBox.h)
-          .strokeColor('#cccccc')
-          .stroke();
+      const left = 48;
+      const right = 547;
+      const headerY = 48;
+      const logoBox = { x: left, y: headerY, w: 90, h: 50 };
+
+      const hasLogo = drawImageIfValid(logoPath, logoBox.x, logoBox.y, {
+        fit: [logoBox.w, logoBox.h],
+      });
+      if (!hasLogo) {
+        doc.rect(logoBox.x, logoBox.y, logoBox.w, logoBox.h).strokeColor('#cccccc').stroke();
         doc
           .font('Helvetica')
           .fontSize(8)
           .fillColor('#666666')
-          .text('LOGO', logoBox.x, logoBox.y + 18, {
-            width: logoBox.w,
-            align: 'center',
-          })
+          .text('LOGO', logoBox.x, logoBox.y + 18, { width: logoBox.w, align: 'center' })
           .fillColor('black');
       }
 
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(14)
-        .text(labName, 150, headerTop, { align: 'center' });
-      doc
-        .font('Helvetica')
-        .fontSize(9)
-        .text(labSubtitle, 150, headerTop + 16, { align: 'center' })
-        .text(labAddress, 150, headerTop + 28, { align: 'center' })
-        .text(labAddress2, 150, headerTop + 38, { align: 'center' });
+      doc.font('Helvetica-Bold').fontSize(18).text(labName, 160, headerY - 2, { width: 220, align: 'center' });
+      doc.font('Helvetica').fontSize(9).text(labSubtitle, 160, headerY + 22, { width: 220, align: 'center' });
+      doc.text(labAddress, 160, headerY + 34, { width: 220, align: 'center' });
+      if (labAddress2) {
+        doc.text(labAddress2, 160, headerY + 46, { width: 220, align: 'center' });
+      }
 
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(9)
-        .text(`SUC: ${service?.branchName ?? 'N/D'}`, 380, headerTop, {
-          align: 'right',
-        })
-        .text(`FOLIO: ${service?.folio ?? 'N/D'}`, 380, headerTop + 14, {
-          align: 'right',
-        });
+      doc.font('Helvetica-Bold').fontSize(12).text(`SUC: ${service?.branchName ?? ''}`, 390, headerY, { width: 157, align: 'right' });
+      doc.text(`FOLIO: ${service?.folio ?? ''}`, 390, headerY + 20, { width: 157, align: 'right' });
 
-      doc.moveDown(3.6);
-      doc
-        .moveTo(48, doc.y)
-        .lineTo(547, doc.y)
-        .strokeColor('#bbbbbb')
-        .stroke();
-      doc.moveDown(0.8);
+      doc.moveTo(left, 126).lineTo(right, 126).strokeColor('#bdbdbd').stroke();
 
-      // Patient / Order info
-      doc.font('Helvetica-Bold').fontSize(9).text('PACIENTE', 48, doc.y);
-      doc.font('Helvetica').fontSize(9);
-      doc.text(
-        `Nombre: ${patient ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim() : 'N/D'}`,
-        48,
-        doc.y + 12,
-      );
-      doc.text(`Edad: ${calcAge(patient?.birthDate)}`, 48, doc.y + 24);
-      doc.text(`Sexo: ${patient?.gender ?? 'N/D'}`, 48, doc.y + 36);
-      doc.text(
-        `Dirección: ${patient?.addressLine ?? 'N/D'}`,
-        48,
-        doc.y + 48,
-      );
+      const infoTop = 140;
+      doc.font('Helvetica-Bold').fontSize(11).text('PACIENTE', left, infoTop);
+      doc.font('Helvetica').fontSize(10);
+      doc.text(`Nombre: ${patient ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim() : ''}`, left, infoTop + 24, { width: 230 });
+      doc.text(`Edad: ${calcAge(patient?.birthDate)}`, left, infoTop + 52, { width: 230 });
+      doc.text(`Sexo: ${patient?.gender ?? ''}`, left, infoTop + 80, { width: 230 });
+      doc.text(`Direccion: ${patient?.addressLine ?? ''}`, left, infoTop + 108, { width: 230 });
 
-      doc.font('Helvetica-Bold').fontSize(9).text('MÉDICO', 300, doc.y - 60);
-      doc.font('Helvetica').fontSize(9);
-      doc.text(
-        `Nombre: ${doctor ? `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`.trim() : 'N/D'}`,
-        300,
-        doc.y - 48,
-      );
-      doc.text(
-        `Cédula: ${doctor?.licenseNumber ?? 'N/D'}`,
-        300,
-        doc.y - 36,
-      );
-      doc.text(
-        `Especialidad: ${doctor?.specialty ?? 'N/D'}`,
-        300,
-        doc.y - 24,
-      );
-      doc.text(
-        `Fecha de toma: ${formatDate(result.sampleAt ?? service?.sampleAt)}`,
-        300,
-        doc.y - 12,
-      );
-      doc.text(`Fecha de entrega: ${formatDate(result.reportedAt)}`, 300);
+      const doctorX = 300;
+      doc.font('Helvetica-Bold').fontSize(11).text('MEDICO', doctorX, infoTop);
+      doc.font('Helvetica').fontSize(10);
+      doc.text(`Nombre: ${doctor ? `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`.trim() : ''}`, doctorX, infoTop + 24, { width: 247 });
+      doc.text(`Cedula: ${doctor?.licenseNumber ?? ''}`, doctorX, infoTop + 40, { width: 247 });
+      doc.text(`Especialidad: ${doctor?.specialty ?? ''}`, doctorX, infoTop + 56, { width: 247 });
+      doc.text(`Fecha de toma: ${formatDate(result.sampleAt ?? service?.sampleAt)}`, doctorX, infoTop + 72, { width: 247 });
+      doc.text(`Fecha de entrega: ${formatDate(result.reportedAt)}`, doctorX, infoTop + 88, { width: 247 });
 
-      doc.moveDown(2.4);
-      doc
-        .moveTo(48, doc.y)
-        .lineTo(547, doc.y)
-        .strokeColor('#bbbbbb')
-        .stroke();
-      doc.moveDown(0.6);
+      doc.moveTo(left, 252).lineTo(right, 252).strokeColor('#bdbdbd').stroke();
 
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(10)
-        .text(`ESTUDIO: ${studyName}`, { align: 'center' });
-      doc.moveDown(0.2);
+      doc.font('Helvetica-Bold').fontSize(13).text(`ESTUDIO: ${studyName}`, left, 262, { width: right - left, align: 'center' });
       if (result.method) {
-        doc
-          .font('Helvetica')
-          .fontSize(9)
-          .text(`Método: ${result.method}`, { align: 'center' });
+        doc.font('Helvetica').fontSize(9).text(`Metodo: ${result.method}`, left, 278, { width: right - left, align: 'center' });
       }
-      if (result.observations) {
-        doc
-          .font('Helvetica')
-          .fontSize(9)
-          .text(`Observaciones: ${result.observations}`, { align: 'center' });
-      }
-      doc.moveDown(0.8);
 
-      // Table header
-      const tableStartY = doc.y;
-      const colX = { label: 48, value: 280, unit: 380, ref: 460 };
+      const tableY = result.method ? 298 : 286;
+      const colX = { label: left, value: 280, unit: 380, ref: 460 };
 
-      const drawTableHeader = () => {
-        doc
-          .font('Helvetica-Bold')
-          .fontSize(10)
-          .text('Parámetro', colX.label, doc.y)
-          .text('Resultado', colX.value, doc.y)
-          .text('Unidad', colX.unit, doc.y)
-          .text('Referencia', colX.ref, doc.y);
-        doc.moveDown(0.4);
-        doc
-          .moveTo(48, doc.y)
-          .lineTo(547, doc.y)
-          .strokeColor('#cccccc')
-          .stroke();
-        doc.moveDown(0.3);
-      };
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(11)
+        .text('Parametro', colX.label, tableY, { width: 210 })
+        .text('Resultado', colX.value, tableY, { width: 90 })
+        .text('Unidad', colX.unit, tableY, { width: 70 })
+        .text('Referencia', colX.ref, tableY, { width: 87 });
+      doc.moveTo(left, tableY + 18).lineTo(right, tableY + 18).strokeColor('#cfcfcf').stroke();
 
-      const ensureSpace = (needed: number) => {
-        if (doc.y + needed > 760) {
-          doc.addPage();
-          drawTableHeader();
-        }
-      };
-
-      drawTableHeader();
-
+      let cursorY = tableY + 28;
       const values = (result.values ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
       doc.font('Helvetica').fontSize(10);
       for (const v of values) {
-        ensureSpace(18);
-        doc.text(v.label ?? 'N/D', colX.label, doc.y, { width: 220 });
-        doc.text(v.value ?? '', colX.value, doc.y, { width: 90 });
-        doc.text(v.unit ?? '', colX.unit, doc.y, { width: 70 });
-        doc.text(v.referenceValue ?? '', colX.ref, doc.y, { width: 90 });
-        doc.moveDown(0.6);
+        if (cursorY > 610) {
+          doc.addPage();
+          cursorY = 70;
+          doc
+            .font('Helvetica-Bold')
+            .fontSize(11)
+            .text('Parametro', colX.label, cursorY, { width: 210 })
+            .text('Resultado', colX.value, cursorY, { width: 90 })
+            .text('Unidad', colX.unit, cursorY, { width: 70 })
+            .text('Referencia', colX.ref, cursorY, { width: 87 });
+          doc.moveTo(left, cursorY + 18).lineTo(right, cursorY + 18).strokeColor('#cfcfcf').stroke();
+          cursorY += 28;
+          doc.font('Helvetica').fontSize(10);
+        }
+
+        doc.text(v.label ?? '', colX.label, cursorY, { width: 210 });
+        doc.text(v.value ?? '', colX.value, cursorY, { width: 90 });
+        doc.text(v.unit ?? '', colX.unit, cursorY, { width: 70 });
+        doc.text(v.referenceValue ?? '', colX.ref, cursorY, { width: 87 });
+        cursorY += 18;
       }
 
-      // Footer / signature
-      doc.moveDown(1.2);
-      const footerY = doc.y;
+      let footerY = Math.max(cursorY + 20, 460);
+      if (footerY > 690) {
+        doc.addPage();
+        footerY = 620;
+      }
 
-      // QR area
+      doc.moveTo(left, footerY - 10).lineTo(right, footerY - 10).strokeColor('#bdbdbd').stroke();
+
       if (qrBuffer) {
-        doc.image(qrBuffer, 48, footerY, { width: 70, height: 70 });
+        doc.image(qrBuffer, left, footerY + 6, { width: 72, height: 72 });
       } else {
-        doc
-          .rect(48, footerY, 70, 70)
-          .strokeColor('#cccccc')
-          .stroke();
-        doc
-          .font('Helvetica')
-          .fontSize(7)
-          .fillColor('#666666')
-          .text('QR', 48, footerY + 28, { width: 70, align: 'center' })
-          .fillColor('black');
+        doc.rect(left, footerY + 6, 72, 72).strokeColor('#cccccc').stroke();
+        doc.font('Helvetica').fontSize(7).fillColor('#666666').text('QR', left, footerY + 36, { width: 72, align: 'center' }).fillColor('black');
       }
-      doc
-        .font('Helvetica')
-        .fontSize(7)
-        .text('Escanea para validar', 48, footerY + 56, {
-          width: 70,
-          align: 'center',
-        });
-
-      // Contact info
-      doc
-        .font('Helvetica')
-        .fontSize(8)
-        .text(labSchedule, 130, footerY + 4)
-        .text(labSampleSchedule, 130, footerY + 16)
-        .text(`Email: ${labEmail}`, 130, footerY + 28)
-        .text(`Tel: ${labPhone}`, 130, footerY + 40);
-
-      // Signature area
-      doc
-        .font('Helvetica')
-        .fontSize(9)
-        .text('ATENTAMENTE', 360, footerY + 6, { align: 'right' });
-
-      if (signaturePath && fs.existsSync(signaturePath)) {
-        doc.image(signaturePath, 360, footerY + 14, {
-          fit: [160, 50],
-          align: 'right',
-        });
-      }
+      doc.font('Helvetica').fontSize(7).text('ESCANEA QR PARA', left, footerY + 80, { width: 72, align: 'center' });
+      doc.text('VALIDAR RESULTADOS', left, footerY + 88, { width: 72, align: 'center' });
 
       doc
         .font('Helvetica')
         .fontSize(9)
-        .text('______________________________', 360, footerY + 38, {
-          align: 'right',
-        })
-        .text(responsibleName, 360, footerY + 52, {
-          align: 'right',
-        });
+        .text(labSchedule, 132, footerY + 12)
+        .text(labSampleSchedule, 132, footerY + 28)
+        .text(`Email: ${labEmail}`, 132, footerY + 44)
+        .text(`Tel: ${labPhone}`, 132, footerY + 60);
 
+      doc.font('Helvetica').fontSize(13).text('ATENTAMENTE', 360, footerY + 18, { width: 187, align: 'right' });
+      drawImageIfValid(signaturePath, 360, footerY + 30, { fit: [160, 54], align: 'right' });
+      doc.moveTo(360, footerY + 84).lineTo(547, footerY + 84).strokeColor('#202020').stroke();
+      doc.font('Helvetica').fontSize(11).text(responsibleName, 360, footerY + 90, { width: 187, align: 'right' });
       if (responsibleLicense) {
-        doc
-          .font('Helvetica')
-          .fontSize(9)
-          .text(`Céd. Prof. ${responsibleLicense}`, 360, footerY + 64, {
-            align: 'right',
-          });
+        doc.text(`Ced. Prof. ${responsibleLicense}`, 360, footerY + 106, { width: 187, align: 'right' });
       }
 
-      doc.moveDown(5);
       doc
         .font('Helvetica')
         .fontSize(8)
-        .text('Este resultado es confidencial y forma parte del expediente clínico.');
+        .text('Este resultado es confidencial y forma parte del expediente clinico.', 360, footerY + 130, {
+          width: 187,
+          align: 'left',
+        });
 
       doc.end();
     });
@@ -592,3 +507,4 @@ export class ResultsService {
     return { message: 'Resultado eliminado definitivamente.' };
   }
 }
+
