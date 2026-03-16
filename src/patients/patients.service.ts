@@ -1,50 +1,122 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, Not } from 'typeorm';
-import { Patient } from './entities/patient.entity';
+import { Not, Repository } from 'typeorm';
 import { CreatePatientDto } from './dto/create-patient.dto';
+import { UpdatePatientStatusDto } from './dto/update-patient-status.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
+import { Patient } from './entities/patient.entity';
+
+export type PatientStatusFilter = 'active' | 'inactive' | 'all';
 
 @Injectable()
 export class PatientsService {
   constructor(
     @InjectRepository(Patient)
     private readonly repo: Repository<Patient>,
-  ) { }
+  ) {}
 
-  async search(search: string, page = 1, limit = 10) {
-    const where = search
-      ? [
-        { firstName: Like(`%${search}%`), isActive: true },
-        { lastName: Like(`%${search}%`), isActive: true },
-        { phone: Like(`%${search}%`), isActive: true },
-        { documentNumber: Like(`%${search}%`), isActive: true },
-      ]
-      : { isActive: true };
+  private normalizeStatusFilter(status?: string): PatientStatusFilter {
+    if (status === 'inactive' || status === 'all') {
+      return status;
+    }
 
-    const [data, total] = await this.repo.findAndCount({
-      where,
-      take: limit,
-      skip: (page - 1) * limit,
-      order: { lastName: 'ASC', firstName: 'ASC' },
-      select: [
-        'id',
-        'firstName',
-        'lastName',
-        'middleName',
-        'gender',
-        'birthDate',
-        'phone',
-        'email',
-        'createdAt',
-        'addressBetween',
-        'addressCity',
-        'addressState',
-        'addressZip',
-        'documentType',
-        'documentNumber',
-      ],
-    });
+    return 'active';
+  }
+
+  private buildStatusWhere(status: PatientStatusFilter) {
+    if (status === 'all') {
+      return {};
+    }
+
+    return { isActive: status === 'active' };
+  }
+
+  private normalizeSearchValue(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
+  }
+
+  private buildNormalizedSql(field: string) {
+    return `regexp_replace(lower(translate(coalesce(${field}, ''), 'áéíóúäëïöüàèìòùÁÉÍÓÚÄËÏÖÜÀÈÌÒÙñÑ', 'aeiouaeiouaeiouAEIOUAEIOUAEIOUnN')), '[^a-z0-9]+', '', 'g')`;
+  }
+
+  private async findByIdOrFail(id: number) {
+    const patient = await this.repo.findOne({ where: { id } });
+
+    if (!patient) {
+      throw new NotFoundException('Paciente no encontrado.');
+    }
+
+    return patient;
+  }
+
+  async search(search: string, page = 1, limit = 10, status?: string) {
+    const normalizedStatus = this.normalizeStatusFilter(status);
+    const qb = this.repo
+      .createQueryBuilder('patient')
+      .select([
+        'patient.id',
+        'patient.firstName',
+        'patient.lastName',
+        'patient.middleName',
+        'patient.gender',
+        'patient.birthDate',
+        'patient.phone',
+        'patient.email',
+        'patient.addressLine',
+        'patient.addressBetween',
+        'patient.addressCity',
+        'patient.addressState',
+        'patient.addressZip',
+        'patient.documentType',
+        'patient.documentNumber',
+        'patient.isActive',
+        'patient.createdAt',
+      ])
+      .orderBy('patient.lastName', 'ASC')
+      .addOrderBy('patient.firstName', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (normalizedStatus !== 'all') {
+      qb.andWhere('patient.isActive = :isActive', {
+        isActive: normalizedStatus === 'active',
+      });
+    }
+
+    const normalizedSearch = this.normalizeSearchValue(search);
+    if (normalizedSearch) {
+      const normalizedFields = [
+        this.buildNormalizedSql('patient.firstName'),
+        this.buildNormalizedSql('patient.lastName'),
+        this.buildNormalizedSql('patient.middleName'),
+        this.buildNormalizedSql(
+          `concat_ws(' ', patient.firstName, patient.lastName, patient.middleName)`,
+        ),
+        this.buildNormalizedSql('patient.phone'),
+        this.buildNormalizedSql('patient.email'),
+        this.buildNormalizedSql('patient.documentNumber'),
+        this.buildNormalizedSql('patient.addressLine'),
+      ];
+
+      qb.andWhere(
+        `(${normalizedFields
+          .map((field) => `${field} LIKE :search`)
+          .join(' OR ')})`,
+        {
+          search: `%${normalizedSearch}%`,
+        },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
 
     return {
       data,
@@ -64,9 +136,10 @@ export class PatientsService {
           documentNumber: dto.documentNumber,
         },
       });
+
       if (exists) {
         throw new ConflictException(
-          'Ya existe un paciente registrado con este tipo y número de documento.',
+          'Ya existe un paciente registrado con este tipo y nÃºmero de documento.',
         );
       }
     }
@@ -76,17 +149,12 @@ export class PatientsService {
   }
 
   async findOne(id: number) {
-    const patient = await this.repo.findOne({ where: { id, isActive: true } });
-    if (!patient) {
-      throw new NotFoundException('Paciente no encontrado.');
-    }
-    return patient;
+    return this.findByIdOrFail(id);
   }
 
   async update(id: number, dto: UpdatePatientDto) {
-    const patient = await this.findOne(id); // lanza 404 si no existe
+    const patient = await this.findByIdOrFail(id);
 
-    // Si viene documento en el DTO, validamos que no exista en otro paciente
     if (dto.documentType && dto.documentNumber) {
       const duplicated = await this.repo.findOne({
         where: {
@@ -98,7 +166,7 @@ export class PatientsService {
 
       if (duplicated) {
         throw new ConflictException(
-          'Ya existe otro paciente con este tipo y número de documento.',
+          'Ya existe otro paciente con este tipo y nÃºmero de documento.',
         );
       }
     }
@@ -108,19 +176,20 @@ export class PatientsService {
   }
 
   async softDelete(id: number) {
-    await this.findOne(id);
+    await this.findByIdOrFail(id);
     await this.repo.update({ id }, { isActive: false });
     return { message: 'Paciente desactivado correctamente.' };
   }
 
-  async hardDelete(id: number) {
-    const result = await this.repo.delete({ id });
+  async updateStatus(id: number, dto: UpdatePatientStatusDto) {
+    const patient = await this.findByIdOrFail(id);
 
-    if (result.affected === 0) {
-      throw new NotFoundException('Paciente no encontrado.');
+    if (patient.isActive === dto.isActive) {
+      return patient;
     }
 
-    return { message: 'Paciente eliminado definitivamente de la base de datos.' };
+    patient.isActive = dto.isActive;
+    return this.repo.save(patient);
   }
 
   async existsByDocument(documentType: string, documentNumber: string) {
@@ -128,6 +197,7 @@ export class PatientsService {
       where: { documentType, documentNumber, isActive: true },
       select: ['id'],
     });
+
     return { exists: !!patient, patientId: patient?.id ?? null };
   }
 }

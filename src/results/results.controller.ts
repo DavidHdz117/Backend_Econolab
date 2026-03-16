@@ -1,4 +1,14 @@
-import {Controller, Get, Post, Body, Param, Put, Delete, UseGuards, Res,} from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Put,
+  Delete,
+  UseGuards,
+  Res,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ResultsService } from './results.service';
 import { CreateStudyResultDto } from './dto/create-study-result.dto';
@@ -21,7 +31,22 @@ export class ResultsController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename=\"resultado-${id}.pdf\"`,
+      `inline; filename="resultado-${id}.pdf"`,
+    );
+    res.send(buffer);
+  }
+
+  @Get('service-order/:serviceOrderId/pdf')
+  async downloadServicePdf(
+    @Param('serviceOrderId') serviceOrderId: string,
+    @Res() res: Response,
+  ) {
+    const buffer =
+      await this.resultsService.generateServicePdf(+serviceOrderId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="resultado-servicio-${serviceOrderId}.pdf"`,
     );
     res.send(buffer);
   }

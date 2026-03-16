@@ -1,13 +1,23 @@
-import {Column, CreateDateColumn, UpdateDateColumn, Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn, OneToMany, Index,} from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+  Index,
+} from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
 import { Doctor } from '../../doctors/entities/doctor.entity';
 
 export enum ServiceStatus {
-    PENDING = 'pending',        // PENDIENTE
-    IN_PROGRESS = 'in_progress',// EN CURSO
-    DELAYED = 'delayed',        // RETRASADO
-    COMPLETED = 'completed',    // CONCLUIDO
-    CANCELLED = 'cancelled',    // CANCELADO
+  PENDING = 'pending', // PENDIENTE
+  IN_PROGRESS = 'in_progress', // EN CURSO
+  DELAYED = 'delayed', // RETRASADO
+  COMPLETED = 'completed', // CONCLUIDO
+  CANCELLED = 'cancelled', // CANCELADO
 }
 
 @Entity({ name: 'service_orders' })
@@ -16,120 +26,129 @@ export enum ServiceStatus {
 @Index('idx_service_order_status', ['status'])
 @Index('idx_service_order_created_at', ['createdAt'])
 export class ServiceOrder {
-    @PrimaryGeneratedColumn()
-    id: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @Index('idx_services_folio')
-    @Column({ length: 50, unique: true })
-    folio: string; // ECO2025xxxxx
+  @Index('idx_services_folio')
+  @Column({ length: 50, unique: true })
+  folio: string; // ECO2025xxxxx
 
-    @ManyToOne(() => Patient, { eager: true })
-    @JoinColumn({ name: 'patient_id' })
-    patient: Patient;
+  @ManyToOne(() => Patient, { eager: true })
+  @JoinColumn({ name: 'patient_id' })
+  patient: Patient;
 
-    @Column({ name: 'patient_id' })
-    patientId: number;
+  @Column({ name: 'patient_id' })
+  patientId: number;
 
-    @ManyToOne(() => Doctor, { eager: true, nullable: true })
-    @JoinColumn({ name: 'doctor_id' })
-    doctor?: Doctor;
+  @ManyToOne(() => Doctor, { eager: true, nullable: true })
+  @JoinColumn({ name: 'doctor_id' })
+  doctor?: Doctor;
 
-    @Column({ name: 'doctor_id', nullable: true })
-    doctorId?: number;
+  @Column({ name: 'doctor_id', nullable: true })
+  doctorId?: number;
 
-    // Por ahora dejamos sucursal como string, luego la puedes ligar a una tabla branches
-    @Column({ length: 150, nullable: true })
-    branchName?: string;
+  // Por ahora dejamos sucursal como string, luego la puedes ligar a una tabla branches
+  @Column({ length: 150, nullable: true })
+  branchName?: string;
 
-    // Fecha/hora de toma de muestra
-    @Column({ type: 'timestamp', nullable: true })
-    sampleAt?: Date;
+  // Fecha/hora de toma de muestra
+  @Column({ type: 'timestamptz', nullable: true })
+  sampleAt?: Date;
 
-    // Fecha/hora de entrega comprometida
-    @Column({ type: 'timestamp', nullable: true })
-    deliveryAt?: Date;
+  // Fecha/hora de entrega comprometida
+  @Column({ type: 'timestamptz', nullable: true })
+  deliveryAt?: Date;
 
-    @Column({
-        type: 'enum',
-        enum: ServiceStatus,
-        default: ServiceStatus.PENDING,
-    })
-    status: ServiceStatus;
+  @Column({ type: 'timestamptz', nullable: true })
+  completedAt?: Date;
 
-    // Totales
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
-    subtotalAmount: number;
+  @Column({
+    type: 'enum',
+    enum: ServiceStatus,
+    default: ServiceStatus.PENDING,
+  })
+  status: ServiceStatus;
 
-    @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
-    courtesyPercent: number; // % de cortesía aplicado al subtotal
+  // Totales
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  subtotalAmount: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
-    discountAmount: number; // monto de descuento por cortesía
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  courtesyPercent: number; // % de cortesía aplicado al subtotal
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
-    totalAmount: number;
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  discountAmount: number; // monto de descuento por cortesía
 
-    @Column({ type: 'text', nullable: true })
-    notes?: string;
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  totalAmount: number;
 
-    @Column({ default: true })
-    isActive: boolean;
+  @Column({ type: 'text', nullable: true })
+  notes?: string;
 
-    @OneToMany(() => ServiceOrderItem, (item) => item.serviceOrder, {
-        cascade: true,
-        eager: true,
-    })
-    items: ServiceOrderItem[];
+  @Column({ default: true })
+  isActive: boolean;
 
-    @CreateDateColumn()
-    createdAt: Date;
+  @OneToMany(() => ServiceOrderItem, (item) => item.serviceOrder, {
+    cascade: true,
+    eager: true,
+  })
+  items: ServiceOrderItem[];
 
-    @UpdateDateColumn()
-    updatedAt: Date;
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt: Date;
 }
 
 // Necesitamos la clase aquí por el circular import
 @Entity({ name: 'service_order_items' })
 export class ServiceOrderItem {
-    @PrimaryGeneratedColumn()
-    id: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @ManyToOne(() => ServiceOrder, (order) => order.items, {
-        onDelete: 'CASCADE',
-    })
-    @JoinColumn({ name: 'service_order_id' })
-    serviceOrder: ServiceOrder;
+  @ManyToOne(() => ServiceOrder, (order) => order.items, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'service_order_id' })
+  serviceOrder: ServiceOrder;
 
-    @Column({ name: 'service_order_id' })
-    serviceOrderId: number;
+  @Column({ name: 'service_order_id' })
+  serviceOrderId: number;
 
-    @Column({ name: 'study_id' })
-    studyId: number;
+  @Column({ name: 'study_id' })
+  studyId: number;
 
-    @Column({ length: 200 })
-    studyNameSnapshot: string; // Nombre del estudio al momento de crear el servicio
+  @Column({ length: 200 })
+  studyNameSnapshot: string; // Nombre del estudio al momento de crear el servicio
 
-    @Column({ length: 20 })
-    priceType: ServiceItemPriceType; // normal, especial, DIF, etc.
+  @Column({ name: 'source_package_id', nullable: true })
+  sourcePackageId?: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
-    unitPrice: number;
+  @Column({ name: 'source_package_name_snapshot', length: 200, nullable: true })
+  sourcePackageNameSnapshot?: string;
 
-    @Column({ type: 'int', default: 1 })
-    quantity: number;
+  @Column({ length: 20 })
+  priceType: ServiceItemPriceType; // normal, especial, DIF, etc.
 
-    @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
-    discountPercent: number; // descuento por ítem
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  unitPrice: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
-    subtotalAmount: number;
+  @Column({ type: 'int', default: 1 })
+  quantity: number;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  discountPercent: number; // descuento por ítem
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  subtotalAmount: number;
 }
 
 // Tipo de precio para el ítem
 export enum ServiceItemPriceType {
-    NORMAL = 'normal',
-    DIF = 'dif',
-    SPECIAL = 'special',
-    HOSPITAL = 'hospital',
-    OTHER = 'other',
+  NORMAL = 'normal',
+  DIF = 'dif',
+  SPECIAL = 'special',
+  HOSPITAL = 'hospital',
+  OTHER = 'other',
 }

@@ -1,11 +1,21 @@
-import { Injectable, NotFoundException, BadRequestException, } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import PDFDocument = require('pdfkit');
+import { Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
-import {ServiceOrder,ServiceOrderItem,} from '../services/entities/service-order.entity';
-import { StudyDetail } from '../studies/entities/study-detail.entity';
+import {
+  ServiceOrder,
+  ServiceOrderItem,
+} from '../services/entities/service-order.entity';
+import {
+  StudyDetail,
+  StudyDetailType,
+} from '../studies/entities/study-detail.entity';
 import { StudyResult, StudyResultValue } from './entities/study-result.entity';
 import { CreateStudyResultDto } from './dto/create-study-result.dto';
 import { UpdateStudyResultDto } from './dto/update-study-result.dto';
@@ -24,7 +34,7 @@ export class ResultsService {
     private readonly itemRepo: Repository<ServiceOrderItem>,
     @InjectRepository(StudyDetail)
     private readonly detailRepo: Repository<StudyDetail>,
-  ) { }
+  ) {}
 
   // ---------- Helpers ----------
 
@@ -35,7 +45,9 @@ export class ResultsService {
     // Si viene el detalle, usamos sus datos como snapshot por defecto
     const baseLabel = studyDetail ? studyDetail.name : dto.label;
     const baseUnit = studyDetail ? studyDetail.unit : dto.unit;
-    const baseRef = studyDetail ? studyDetail.referenceValue : dto.referenceValue;
+    const baseRef = studyDetail
+      ? studyDetail.referenceValue
+      : dto.referenceValue;
 
     return this.valueRepo.create({
       studyDetailId: dto.studyDetailId ?? studyDetail?.id,
@@ -51,8 +63,7 @@ export class ResultsService {
   private async buildQrBuffer(result: StudyResult): Promise<Buffer | null> {
     const template = process.env.LAB_QR_URL ?? '';
     const base = process.env.LAB_QR_BASE_URL ?? '';
-    const path =
-      process.env.LAB_QR_PATH ?? `/results/${result.id}`;
+    const path = process.env.LAB_QR_PATH ?? `/results/${result.id}`;
 
     let url = template;
     if (!url && base) {
@@ -97,8 +108,14 @@ export class ResultsService {
         }
       };
 
-      doc.on('data', (chunk) => chunks.push(chunk));
-      doc.on('error', (err) => reject(err));
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('error', (err: unknown) =>
+        reject(
+          err instanceof Error
+            ? err
+            : new Error('No se pudo generar el PDF del resultado.'),
+        ),
+      );
       doc.on('end', () => resolve(Buffer.concat(chunks)));
 
       const labName = process.env.LAB_NAME ?? 'ECONOLAB';
@@ -115,15 +132,13 @@ export class ResultsService {
       const signaturePath = process.env.LAB_SIGNATURE_PATH ?? '';
       const responsibleName =
         process.env.LAB_RESPONSIBLE_NAME ?? 'Responsable Sanitario';
-      const responsibleLicense =
-        process.env.LAB_RESPONSIBLE_LICENSE ?? '';
+      const responsibleLicense = process.env.LAB_RESPONSIBLE_LICENSE ?? '';
 
       const service = result.serviceOrder;
       const patient = service?.patient;
       const doctor = service?.doctor;
 
-      const studyName =
-        result.serviceOrderItem?.studyNameSnapshot ?? '';
+      const studyName = result.serviceOrderItem?.studyNameSnapshot ?? '';
 
       const formatDate = (value?: Date) => {
         if (!value) return '';
@@ -156,49 +171,124 @@ export class ResultsService {
         fit: [logoBox.w, logoBox.h],
       });
       if (!hasLogo) {
-        doc.rect(logoBox.x, logoBox.y, logoBox.w, logoBox.h).strokeColor('#cccccc').stroke();
+        doc
+          .rect(logoBox.x, logoBox.y, logoBox.w, logoBox.h)
+          .strokeColor('#cccccc')
+          .stroke();
         doc
           .font('Helvetica')
           .fontSize(8)
           .fillColor('#666666')
-          .text('LOGO', logoBox.x, logoBox.y + 18, { width: logoBox.w, align: 'center' })
+          .text('LOGO', logoBox.x, logoBox.y + 18, {
+            width: logoBox.w,
+            align: 'center',
+          })
           .fillColor('black');
       }
 
-      doc.font('Helvetica-Bold').fontSize(18).text(labName, 160, headerY - 2, { width: 220, align: 'center' });
-      doc.font('Helvetica').fontSize(9).text(labSubtitle, 160, headerY + 22, { width: 220, align: 'center' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(18)
+        .text(labName, 160, headerY - 2, { width: 220, align: 'center' });
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .text(labSubtitle, 160, headerY + 22, { width: 220, align: 'center' });
       doc.text(labAddress, 160, headerY + 34, { width: 220, align: 'center' });
       if (labAddress2) {
-        doc.text(labAddress2, 160, headerY + 46, { width: 220, align: 'center' });
+        doc.text(labAddress2, 160, headerY + 46, {
+          width: 220,
+          align: 'center',
+        });
       }
 
-      doc.font('Helvetica-Bold').fontSize(12).text(`SUC: ${service?.branchName ?? ''}`, 390, headerY, { width: 157, align: 'right' });
-      doc.text(`FOLIO: ${service?.folio ?? ''}`, 390, headerY + 20, { width: 157, align: 'right' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(12)
+        .text(`SUC: ${service?.branchName ?? ''}`, 390, headerY, {
+          width: 157,
+          align: 'right',
+        });
+      doc.text(`FOLIO: ${service?.folio ?? ''}`, 390, headerY + 20, {
+        width: 157,
+        align: 'right',
+      });
 
       doc.moveTo(left, 126).lineTo(right, 126).strokeColor('#bdbdbd').stroke();
 
       const infoTop = 140;
       doc.font('Helvetica-Bold').fontSize(11).text('PACIENTE', left, infoTop);
       doc.font('Helvetica').fontSize(10);
-      doc.text(`Nombre: ${patient ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim() : ''}`, left, infoTop + 24, { width: 230 });
-      doc.text(`Edad: ${calcAge(patient?.birthDate)}`, left, infoTop + 52, { width: 230 });
-      doc.text(`Sexo: ${patient?.gender ?? ''}`, left, infoTop + 80, { width: 230 });
-      doc.text(`Direccion: ${patient?.addressLine ?? ''}`, left, infoTop + 108, { width: 230 });
+      doc.text(
+        `Nombre: ${patient ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim() : ''}`,
+        left,
+        infoTop + 24,
+        { width: 230 },
+      );
+      doc.text(`Edad: ${calcAge(patient?.birthDate)}`, left, infoTop + 52, {
+        width: 230,
+      });
+      doc.text(`Sexo: ${patient?.gender ?? ''}`, left, infoTop + 80, {
+        width: 230,
+      });
+      doc.text(
+        `Direccion: ${patient?.addressLine ?? ''}`,
+        left,
+        infoTop + 108,
+        { width: 230 },
+      );
 
       const doctorX = 300;
       doc.font('Helvetica-Bold').fontSize(11).text('MEDICO', doctorX, infoTop);
       doc.font('Helvetica').fontSize(10);
-      doc.text(`Nombre: ${doctor ? `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`.trim() : ''}`, doctorX, infoTop + 24, { width: 247 });
-      doc.text(`Cedula: ${doctor?.licenseNumber ?? ''}`, doctorX, infoTop + 40, { width: 247 });
-      doc.text(`Especialidad: ${doctor?.specialty ?? ''}`, doctorX, infoTop + 56, { width: 247 });
-      doc.text(`Fecha de toma: ${formatDate(result.sampleAt ?? service?.sampleAt)}`, doctorX, infoTop + 72, { width: 247 });
-      doc.text(`Fecha de entrega: ${formatDate(result.reportedAt)}`, doctorX, infoTop + 88, { width: 247 });
+      doc.text(
+        `Nombre: ${doctor ? `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`.trim() : ''}`,
+        doctorX,
+        infoTop + 24,
+        { width: 247 },
+      );
+      doc.text(
+        `Cedula: ${doctor?.licenseNumber ?? ''}`,
+        doctorX,
+        infoTop + 40,
+        { width: 247 },
+      );
+      doc.text(
+        `Especialidad: ${doctor?.specialty ?? ''}`,
+        doctorX,
+        infoTop + 56,
+        { width: 247 },
+      );
+      doc.text(
+        `Fecha de toma: ${formatDate(result.sampleAt ?? service?.sampleAt)}`,
+        doctorX,
+        infoTop + 72,
+        { width: 247 },
+      );
+      doc.text(
+        `Fecha de entrega: ${formatDate(result.reportedAt)}`,
+        doctorX,
+        infoTop + 88,
+        { width: 247 },
+      );
 
       doc.moveTo(left, 252).lineTo(right, 252).strokeColor('#bdbdbd').stroke();
 
-      doc.font('Helvetica-Bold').fontSize(13).text(`ESTUDIO: ${studyName}`, left, 262, { width: right - left, align: 'center' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(13)
+        .text(`ESTUDIO: ${studyName}`, left, 262, {
+          width: right - left,
+          align: 'center',
+        });
       if (result.method) {
-        doc.font('Helvetica').fontSize(9).text(`Metodo: ${result.method}`, left, 278, { width: right - left, align: 'center' });
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .text(`Metodo: ${result.method}`, left, 278, {
+            width: right - left,
+            align: 'center',
+          });
       }
 
       const tableY = result.method ? 298 : 286;
@@ -211,10 +301,16 @@ export class ResultsService {
         .text('Resultado', colX.value, tableY, { width: 90 })
         .text('Unidad', colX.unit, tableY, { width: 70 })
         .text('Referencia', colX.ref, tableY, { width: 87 });
-      doc.moveTo(left, tableY + 18).lineTo(right, tableY + 18).strokeColor('#cfcfcf').stroke();
+      doc
+        .moveTo(left, tableY + 18)
+        .lineTo(right, tableY + 18)
+        .strokeColor('#cfcfcf')
+        .stroke();
 
       let cursorY = tableY + 28;
-      const values = (result.values ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+      const values = (result.values ?? [])
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder);
       doc.font('Helvetica').fontSize(10);
       for (const v of values) {
         if (cursorY > 610) {
@@ -227,7 +323,11 @@ export class ResultsService {
             .text('Resultado', colX.value, cursorY, { width: 90 })
             .text('Unidad', colX.unit, cursorY, { width: 70 })
             .text('Referencia', colX.ref, cursorY, { width: 87 });
-          doc.moveTo(left, cursorY + 18).lineTo(right, cursorY + 18).strokeColor('#cfcfcf').stroke();
+          doc
+            .moveTo(left, cursorY + 18)
+            .lineTo(right, cursorY + 18)
+            .strokeColor('#cfcfcf')
+            .stroke();
           cursorY += 28;
           doc.font('Helvetica').fontSize(10);
         }
@@ -245,16 +345,37 @@ export class ResultsService {
         footerY = 620;
       }
 
-      doc.moveTo(left, footerY - 10).lineTo(right, footerY - 10).strokeColor('#bdbdbd').stroke();
+      doc
+        .moveTo(left, footerY - 10)
+        .lineTo(right, footerY - 10)
+        .strokeColor('#bdbdbd')
+        .stroke();
 
       if (qrBuffer) {
         doc.image(qrBuffer, left, footerY + 6, { width: 72, height: 72 });
       } else {
-        doc.rect(left, footerY + 6, 72, 72).strokeColor('#cccccc').stroke();
-        doc.font('Helvetica').fontSize(7).fillColor('#666666').text('QR', left, footerY + 36, { width: 72, align: 'center' }).fillColor('black');
+        doc
+          .rect(left, footerY + 6, 72, 72)
+          .strokeColor('#cccccc')
+          .stroke();
+        doc
+          .font('Helvetica')
+          .fontSize(7)
+          .fillColor('#666666')
+          .text('QR', left, footerY + 36, { width: 72, align: 'center' })
+          .fillColor('black');
       }
-      doc.font('Helvetica').fontSize(7).text('ESCANEA QR PARA', left, footerY + 80, { width: 72, align: 'center' });
-      doc.text('VALIDAR RESULTADOS', left, footerY + 88, { width: 72, align: 'center' });
+      doc
+        .font('Helvetica')
+        .fontSize(7)
+        .text('ESCANEA QR PARA', left, footerY + 80, {
+          width: 72,
+          align: 'center',
+        });
+      doc.text('VALIDAR RESULTADOS', left, footerY + 88, {
+        width: 72,
+        align: 'center',
+      });
 
       doc
         .font('Helvetica')
@@ -264,21 +385,419 @@ export class ResultsService {
         .text(`Email: ${labEmail}`, 132, footerY + 44)
         .text(`Tel: ${labPhone}`, 132, footerY + 60);
 
-      doc.font('Helvetica').fontSize(13).text('ATENTAMENTE', 360, footerY + 18, { width: 187, align: 'right' });
-      drawImageIfValid(signaturePath, 360, footerY + 30, { fit: [160, 54], align: 'right' });
-      doc.moveTo(360, footerY + 84).lineTo(547, footerY + 84).strokeColor('#202020').stroke();
-      doc.font('Helvetica').fontSize(11).text(responsibleName, 360, footerY + 90, { width: 187, align: 'right' });
+      doc
+        .font('Helvetica')
+        .fontSize(13)
+        .text('ATENTAMENTE', 360, footerY + 18, { width: 187, align: 'right' });
+      drawImageIfValid(signaturePath, 360, footerY + 30, {
+        fit: [160, 54],
+        align: 'right',
+      });
+      doc
+        .moveTo(360, footerY + 84)
+        .lineTo(547, footerY + 84)
+        .strokeColor('#202020')
+        .stroke();
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .text(responsibleName, 360, footerY + 90, {
+          width: 187,
+          align: 'right',
+        });
       if (responsibleLicense) {
-        doc.text(`Ced. Prof. ${responsibleLicense}`, 360, footerY + 106, { width: 187, align: 'right' });
+        doc.text(`Ced. Prof. ${responsibleLicense}`, 360, footerY + 106, {
+          width: 187,
+          align: 'right',
+        });
       }
 
       doc
         .font('Helvetica')
         .fontSize(8)
-        .text('Este resultado es confidencial y forma parte del expediente clinico.', 360, footerY + 130, {
-          width: 187,
-          align: 'left',
+        .text(
+          'Este resultado es confidencial y forma parte del expediente clinico.',
+          360,
+          footerY + 130,
+          {
+            width: 187,
+            align: 'left',
+          },
+        );
+
+      doc.end();
+    });
+  }
+
+  private async buildServicePdfBuffer(
+    service: ServiceOrder,
+    sections: Array<{
+      result: StudyResult;
+      studyName: string;
+      packageName?: string;
+    }>,
+  ): Promise<Buffer> {
+    const qrBuffer = sections[0]
+      ? await this.buildQrBuffer(sections[0].result)
+      : null;
+
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ margin: 48, size: 'A4' });
+      const chunks: Buffer[] = [];
+
+      const drawImageIfValid = (
+        imagePath: string,
+        x: number,
+        y: number,
+        options: Record<string, unknown>,
+      ): boolean => {
+        if (!imagePath || !fs.existsSync(imagePath)) {
+          return false;
+        }
+        try {
+          doc.image(imagePath, x, y, options);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      const formatDate = (value?: Date) => {
+        if (!value) return '';
+        try {
+          return new Date(value).toLocaleString('es-MX');
+        } catch {
+          return '';
+        }
+      };
+
+      const calcAge = (birthDate?: string) => {
+        if (!birthDate) return '';
+        const birth = new Date(birthDate);
+        if (Number.isNaN(birth.getTime())) return '';
+        const today = new Date();
+        let age = today.getFullYear() - birth.getFullYear();
+        const m = today.getMonth() - birth.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+          age -= 1;
+        }
+        return `${age} años`;
+      };
+
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('error', (err: unknown) =>
+        reject(
+          err instanceof Error
+            ? err
+            : new Error('No se pudo generar el PDF del servicio.'),
+        ),
+      );
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      const labName = process.env.LAB_NAME ?? 'ECONOLAB';
+      const labSubtitle =
+        process.env.LAB_SUBTITLE ?? 'LABORATORIO DE ANALISIS CLINICOS';
+      const labAddress = process.env.LAB_ADDRESS ?? 'Direccion no configurada';
+      const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
+      const labPhone = process.env.LAB_PHONE ?? 'Telefono no configurado';
+      const labEmail = process.env.LAB_EMAIL ?? 'Correo no configurado';
+      const labSchedule = process.env.LAB_SCHEDULE ?? 'Horario no configurado';
+      const labSampleSchedule =
+        process.env.LAB_SAMPLE_SCHEDULE ?? 'Horario de toma no configurado';
+      const logoPath = process.env.LAB_LOGO_PATH ?? '';
+      const signaturePath = process.env.LAB_SIGNATURE_PATH ?? '';
+      const responsibleName =
+        process.env.LAB_RESPONSIBLE_NAME ?? 'Responsable Sanitario';
+      const responsibleLicense = process.env.LAB_RESPONSIBLE_LICENSE ?? '';
+
+      const patient = service.patient;
+      const doctor = service.doctor;
+      const left = 48;
+      const right = 547;
+      const headerY = 48;
+      const logoBox = { x: left, y: headerY, w: 90, h: 50 };
+
+      const hasLogo = drawImageIfValid(logoPath, logoBox.x, logoBox.y, {
+        fit: [logoBox.w, logoBox.h],
+      });
+      if (!hasLogo) {
+        doc
+          .rect(logoBox.x, logoBox.y, logoBox.w, logoBox.h)
+          .strokeColor('#cccccc')
+          .stroke();
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#666666')
+          .text('LOGO', logoBox.x, logoBox.y + 18, {
+            width: logoBox.w,
+            align: 'center',
+          })
+          .fillColor('black');
+      }
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(18)
+        .text(labName, 160, headerY - 2, { width: 220, align: 'center' });
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .text(labSubtitle, 160, headerY + 22, { width: 220, align: 'center' });
+      doc.text(labAddress, 160, headerY + 34, { width: 220, align: 'center' });
+      if (labAddress2) {
+        doc.text(labAddress2, 160, headerY + 46, {
+          width: 220,
+          align: 'center',
         });
+      }
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(12)
+        .text(`SUC: ${service.branchName ?? ''}`, 390, headerY, {
+          width: 157,
+          align: 'right',
+        });
+      doc.text(`FOLIO: ${service.folio ?? ''}`, 390, headerY + 20, {
+        width: 157,
+        align: 'right',
+      });
+
+      doc.moveTo(left, 126).lineTo(right, 126).strokeColor('#bdbdbd').stroke();
+
+      const infoTop = 140;
+      doc.font('Helvetica-Bold').fontSize(11).text('PACIENTE', left, infoTop);
+      doc.font('Helvetica').fontSize(10);
+      doc.text(
+        `Nombre: ${patient ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim() : ''}`,
+        left,
+        infoTop + 24,
+        { width: 230 },
+      );
+      doc.text(`Edad: ${calcAge(patient?.birthDate)}`, left, infoTop + 52, {
+        width: 230,
+      });
+      doc.text(`Sexo: ${patient?.gender ?? ''}`, left, infoTop + 80, {
+        width: 230,
+      });
+      doc.text(
+        `Direccion: ${patient?.addressLine ?? ''}`,
+        left,
+        infoTop + 108,
+        { width: 230 },
+      );
+
+      const doctorX = 300;
+      doc.font('Helvetica-Bold').fontSize(11).text('MEDICO', doctorX, infoTop);
+      doc.font('Helvetica').fontSize(10);
+      doc.text(
+        `Nombre: ${doctor ? `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`.trim() : ''}`,
+        doctorX,
+        infoTop + 24,
+        { width: 247 },
+      );
+      doc.text(
+        `Cedula: ${doctor?.licenseNumber ?? ''}`,
+        doctorX,
+        infoTop + 40,
+        {
+          width: 247,
+        },
+      );
+      doc.text(
+        `Especialidad: ${doctor?.specialty ?? ''}`,
+        doctorX,
+        infoTop + 56,
+        { width: 247 },
+      );
+      doc.text(
+        `Fecha de toma: ${formatDate(service.sampleAt)}`,
+        doctorX,
+        infoTop + 72,
+        { width: 247 },
+      );
+      doc.text(
+        `Fecha de entrega: ${formatDate(service.deliveryAt)}`,
+        doctorX,
+        infoTop + 88,
+        { width: 247 },
+      );
+
+      doc.moveTo(left, 252).lineTo(right, 252).strokeColor('#bdbdbd').stroke();
+
+      let cursorY = 270;
+      const colX = { label: left, value: 280, unit: 380, ref: 460 };
+
+      for (const section of sections) {
+        const sectionTitle = section.packageName
+          ? `${section.packageName} / ${section.studyName}`
+          : section.studyName;
+
+        const values = (section.result.values ?? [])
+          .slice()
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+
+        if (cursorY > 640) {
+          doc.addPage();
+          cursorY = 70;
+        }
+
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(13)
+          .text(`ESTUDIO: ${sectionTitle}`, left, cursorY, {
+            width: right - left,
+            align: 'center',
+          });
+
+        if (section.result.method) {
+          doc
+            .font('Helvetica')
+            .fontSize(9)
+            .text(`Metodo: ${section.result.method}`, left, cursorY + 16, {
+              width: right - left,
+              align: 'center',
+            });
+        }
+
+        const tableY = section.result.method ? cursorY + 36 : cursorY + 24;
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(11)
+          .text('Parametro', colX.label, tableY, { width: 210 })
+          .text('Resultado', colX.value, tableY, { width: 90 })
+          .text('Unidad', colX.unit, tableY, { width: 70 })
+          .text('Referencia', colX.ref, tableY, { width: 87 });
+        doc
+          .moveTo(left, tableY + 18)
+          .lineTo(right, tableY + 18)
+          .strokeColor('#cfcfcf')
+          .stroke();
+
+        cursorY = tableY + 28;
+        doc.font('Helvetica').fontSize(10);
+
+        for (const value of values) {
+          if (cursorY > 700) {
+            doc.addPage();
+            cursorY = 70;
+            doc
+              .font('Helvetica-Bold')
+              .fontSize(11)
+              .text('Parametro', colX.label, cursorY, { width: 210 })
+              .text('Resultado', colX.value, cursorY, { width: 90 })
+              .text('Unidad', colX.unit, cursorY, { width: 70 })
+              .text('Referencia', colX.ref, cursorY, { width: 87 });
+            doc
+              .moveTo(left, cursorY + 18)
+              .lineTo(right, cursorY + 18)
+              .strokeColor('#cfcfcf')
+              .stroke();
+            cursorY += 28;
+            doc.font('Helvetica').fontSize(10);
+          }
+
+          doc.text(value.label ?? '', colX.label, cursorY, { width: 210 });
+          doc.text(value.value ?? '', colX.value, cursorY, { width: 90 });
+          doc.text(value.unit ?? '', colX.unit, cursorY, { width: 70 });
+          doc.text(value.referenceValue ?? '', colX.ref, cursorY, {
+            width: 87,
+          });
+          cursorY += 18;
+        }
+
+        cursorY += 24;
+      }
+
+      let footerY = Math.max(cursorY + 10, 620);
+      if (footerY > 690) {
+        doc.addPage();
+        footerY = 620;
+      }
+
+      doc
+        .moveTo(left, footerY - 10)
+        .lineTo(right, footerY - 10)
+        .strokeColor('#bdbdbd')
+        .stroke();
+
+      if (qrBuffer) {
+        doc.image(qrBuffer, left, footerY + 6, { width: 72, height: 72 });
+      } else {
+        doc
+          .rect(left, footerY + 6, 72, 72)
+          .strokeColor('#cccccc')
+          .stroke();
+        doc
+          .font('Helvetica')
+          .fontSize(7)
+          .fillColor('#666666')
+          .text('QR', left, footerY + 36, { width: 72, align: 'center' })
+          .fillColor('black');
+      }
+      doc
+        .font('Helvetica')
+        .fontSize(7)
+        .text('ESCANEA QR PARA', left, footerY + 80, {
+          width: 72,
+          align: 'center',
+        });
+      doc.text('VALIDAR RESULTADOS', left, footerY + 88, {
+        width: 72,
+        align: 'center',
+      });
+
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .text(labSchedule, 132, footerY + 12)
+        .text(labSampleSchedule, 132, footerY + 28)
+        .text(`Email: ${labEmail}`, 132, footerY + 44)
+        .text(`Tel: ${labPhone}`, 132, footerY + 60);
+
+      doc
+        .font('Helvetica')
+        .fontSize(13)
+        .text('ATENTAMENTE', 360, footerY + 18, {
+          width: 187,
+          align: 'right',
+        });
+      drawImageIfValid(signaturePath, 360, footerY + 30, {
+        fit: [160, 54],
+        align: 'right',
+      });
+      doc
+        .moveTo(360, footerY + 84)
+        .lineTo(547, footerY + 84)
+        .strokeColor('#202020')
+        .stroke();
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .text(responsibleName, 360, footerY + 90, {
+          width: 187,
+          align: 'right',
+        });
+      if (responsibleLicense) {
+        doc.text(`Ced. Prof. ${responsibleLicense}`, 360, footerY + 106, {
+          width: 187,
+          align: 'right',
+        });
+      }
+
+      doc
+        .font('Helvetica')
+        .fontSize(8)
+        .text(
+          'Este resultado es confidencial y forma parte del expediente clinico.',
+          360,
+          footerY + 130,
+          {
+            width: 187,
+            align: 'left',
+          },
+        );
 
       doc.end();
     });
@@ -290,11 +809,13 @@ export class ResultsService {
    * Devuelve un resultado de estudio para un item de servicio.
    * Si no existe aún, crea un borrador vacío tomando los StudyDetail
    * del estudio configurado, para que el front solo llene los RESULTADO.
+   * Aqui solo se copian los parametros; las categorias se usan unicamente
+   * para organizar la plantilla del estudio.
    *
    * Ideal para la pantalla a la que llegas desde "Acciones -> Resultados".
    */
   async getOrCreateDraftByServiceItem(serviceOrderItemId: number) {
-    let existing = await this.resultRepo.findOne({
+    const existing = await this.resultRepo.findOne({
       where: { serviceOrderItemId, isActive: true },
     });
     if (existing) return existing;
@@ -310,13 +831,27 @@ export class ResultsService {
       );
     }
 
-    // Traemos los detalles configurados del estudio (GLUCOSA, UREA, etc.)
+    // Traemos la configuracion activa del estudio.
     const details = await this.detailRepo.find({
       where: { studyId: item.studyId, isActive: true },
       order: { sortOrder: 'ASC' },
     });
 
-    const values = details.map((d) =>
+    const activeCategoryIds = new Set(
+      details
+        .filter((detail) => detail.dataType === StudyDetailType.CATEGORY)
+        .map((detail) => detail.id),
+    );
+
+    // Solo los parametros se capturan en resultados; las categorias funcionan
+    // como organizacion de la plantilla en el catalogo del estudio.
+    const parameters = details.filter(
+      (detail) =>
+        detail.dataType === StudyDetailType.PARAMETER &&
+        (!detail.parentId || activeCategoryIds.has(detail.parentId)),
+    );
+
+    const values = parameters.map((d) =>
       this.valueRepo.create({
         studyDetailId: d.id,
         label: d.name,
@@ -366,6 +901,45 @@ export class ResultsService {
     return this.buildPdfBuffer(result);
   }
 
+  async generateServicePdf(serviceOrderId: number) {
+    const service = await this.serviceRepo.findOne({
+      where: { id: serviceOrderId, isActive: true },
+      relations: {
+        patient: true,
+        doctor: true,
+        items: true,
+      },
+    });
+
+    if (!service) {
+      throw new NotFoundException('Servicio no encontrado.');
+    }
+
+    const orderedItems = [...(service.items ?? [])].sort((a, b) => a.id - b.id);
+    if (orderedItems.length === 0) {
+      throw new NotFoundException(
+        'Este servicio no tiene estudios asociados para generar resultados.',
+      );
+    }
+
+    const sections: Array<{
+      result: StudyResult;
+      studyName: string;
+      packageName?: string;
+    }> = [];
+
+    for (const item of orderedItems) {
+      const result = await this.getOrCreateDraftByServiceItem(item.id);
+      sections.push({
+        result,
+        studyName: item.studyNameSnapshot,
+        packageName: item.sourcePackageNameSnapshot,
+      });
+    }
+
+    return this.buildServicePdfBuffer(service, sections);
+  }
+
   async findByServiceItem(serviceOrderItemId: number) {
     const result = await this.resultRepo.findOne({
       where: { serviceOrderItemId, isActive: true },
@@ -381,7 +955,9 @@ export class ResultsService {
       where: { id: dto.serviceOrderId, isActive: true },
     });
     if (!service) {
-      throw new NotFoundException('El servicio clínico no existe o está inactivo.');
+      throw new NotFoundException(
+        'El servicio clínico no existe o está inactivo.',
+      );
     }
 
     const item = await this.itemRepo.findOne({
@@ -436,10 +1012,7 @@ export class ResultsService {
   async update(id: number, dto: UpdateStudyResultDto) {
     const result = await this.findOne(id);
 
-    if (
-      dto.serviceOrderId &&
-      dto.serviceOrderId !== result.serviceOrderId
-    ) {
+    if (dto.serviceOrderId && dto.serviceOrderId !== result.serviceOrderId) {
       throw new BadRequestException(
         'No se puede cambiar el servicio clínico de un resultado.',
       );
@@ -507,4 +1080,3 @@ export class ResultsService {
     return { message: 'Resultado eliminado definitivamente.' };
   }
 }
-

@@ -1,12 +1,18 @@
-import {Injectable, ConflictException, NotFoundException,} from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Study, StudyStatus, StudyType } from './entities/study.entity';
 import { StudyDetail } from './entities/study-detail.entity';
 import { CreateStudyDto } from './dto/create-study.dto';
 import { UpdateStudyDto } from './dto/update-study.dto';
 import { CreateStudyDetailDto } from './dto/create-study-detail.dto';
 import { UpdateStudyDetailDto } from './dto/update-study-detail.dto';
+import { UpdateStudyDetailStatusDto } from './dto/update-study-detail-status.dto';
 
 @Injectable()
 export class StudiesService {
@@ -16,6 +22,55 @@ export class StudiesService {
     @InjectRepository(StudyDetail)
     private readonly detailRepo: Repository<StudyDetail>,
   ) {}
+
+  private normalizeSearchValue(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
+  }
+
+  private buildNormalizedSql(field: string) {
+    return `regexp_replace(lower(translate(coalesce(${field}, ''), 'áéíóúäëïöüàèìòùÁÉÍÓÚÄËÏÖÜÀÈÌÒÙñÑ', 'aeiouaeiouaeiouAEIOUAEIOUAEIOUnN')), '[^a-z0-9]+', '', 'g')`;
+  }
+
+  private async validatePackageStudyIds(
+    packageStudyIds: number[] | undefined,
+    currentStudyId?: number,
+  ) {
+    const normalizedIds = [...new Set((packageStudyIds ?? []).filter(Boolean))];
+
+    if (currentStudyId && normalizedIds.includes(currentStudyId)) {
+      throw new BadRequestException(
+        'Un paquete no puede incluirse a si mismo.',
+      );
+    }
+
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+
+    const studies = await this.studyRepo.findByIds(normalizedIds);
+    if (studies.length !== normalizedIds.length) {
+      throw new NotFoundException('Uno o mas estudios del paquete no existen.');
+    }
+
+    const invalidStudy = studies.find(
+      (study) =>
+        !study.isActive ||
+        study.status !== StudyStatus.ACTIVE ||
+        study.type !== StudyType.STUDY,
+    );
+
+    if (invalidStudy) {
+      throw new BadRequestException(
+        'Los paquetes solo pueden incluir estudios individuales activos.',
+      );
+    }
+
+    return normalizedIds;
+  }
 
   /**
    * Búsqueda de estudios / paquetes
@@ -27,27 +82,42 @@ export class StudiesService {
     page = 1,
     limit = 10,
   ) {
-    const base: any = { isActive: true };
-    if (type) base.type = type;
-    if (status) base.status = status;
+    const qb = this.studyRepo
+      .createQueryBuilder('study')
+      .where('study.isActive = :isActive', { isActive: true })
+      .orderBy('study.name', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit);
 
-    let where: any;
-
-    if (search) {
-      where = [
-        { ...base, name: Like(`%${search}%`) },
-        { ...base, code: Like(`%${search}%`) },
-      ];
-    } else {
-      where = base;
+    if (type) {
+      qb.andWhere('study.type = :type', { type });
     }
 
-    const [data, total] = await this.studyRepo.findAndCount({
-      where,
-      take: limit,
-      skip: (page - 1) * limit,
-      order: { name: 'ASC' },
-    });
+    if (status) {
+      qb.andWhere('study.status = :status', { status });
+    }
+
+    const normalizedSearch = this.normalizeSearchValue(search);
+    if (normalizedSearch) {
+      const normalizedFields = [
+        this.buildNormalizedSql('study.name'),
+        this.buildNormalizedSql('study.code'),
+        this.buildNormalizedSql('study.description'),
+        this.buildNormalizedSql('study.method'),
+        this.buildNormalizedSql('study.indicator'),
+      ];
+
+      qb.andWhere(
+        `(${normalizedFields
+          .map((field) => `${field} LIKE :search`)
+          .join(' OR ')})`,
+        {
+          search: `%${normalizedSearch}%`,
+        },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
 
     return {
       data,
@@ -82,8 +152,14 @@ export class StudiesService {
       throw new ConflictException('Ya existe un estudio con esta clave.');
     }
 
+    const packageStudyIds =
+      dto.type === StudyType.PACKAGE
+        ? await this.validatePackageStudyIds(dto.packageStudyIds)
+        : [];
+
     const entity = this.studyRepo.create({
       ...dto,
+      packageStudyIds,
       normalPrice: dto.normalPrice,
       difPrice: dto.difPrice,
       specialPrice: dto.specialPrice,
@@ -123,8 +199,18 @@ export class StudiesService {
       }
     }
 
+    const nextType = dto.type ?? study.type;
+    const packageStudyIds =
+      nextType === StudyType.PACKAGE
+        ? await this.validatePackageStudyIds(
+            dto.packageStudyIds ?? study.packageStudyIds,
+            id,
+          )
+        : [];
+
     const merged = this.studyRepo.merge(study, {
       ...dto,
+      packageStudyIds,
       normalPrice: dto.normalPrice ?? study.normalPrice,
       difPrice: dto.difPrice ?? study.difPrice,
       specialPrice: dto.specialPrice ?? study.specialPrice,
@@ -155,7 +241,9 @@ export class StudiesService {
       throw new NotFoundException('Estudio no encontrado.');
     }
 
-    return { message: 'Estudio eliminado definitivamente de la base de datos.' };
+    return {
+      message: 'Estudio eliminado definitivamente de la base de datos.',
+    };
   }
 
   // -------- DETALLES DE ESTUDIO --------
@@ -164,11 +252,15 @@ export class StudiesService {
    * Listar detalles de un estudio (categorías y parámetros)
    */
   async listDetails(studyId: number) {
-    await this.findOne(studyId);
+    const study = await this.findOne(studyId);
+
+    if (study.type === StudyType.PACKAGE) {
+      return [];
+    }
 
     const details = await this.detailRepo.find({
-      where: { studyId, isActive: true },
-      order: { sortOrder: 'ASC' },
+      where: { studyId },
+      order: { sortOrder: 'ASC', name: 'ASC' },
     });
 
     return details;
@@ -178,14 +270,22 @@ export class StudiesService {
    * Crear detalle para un estudio
    */
   async createDetail(studyId: number, dto: CreateStudyDetailDto) {
-    await this.findOne(studyId);
+    const study = await this.findOne(studyId);
+
+    if (study.type === StudyType.PACKAGE) {
+      throw new BadRequestException(
+        'Los paquetes no definen parametros directos. Agrega estudios al paquete.',
+      );
+    }
 
     if (dto.parentId) {
       const parent = await this.detailRepo.findOne({
         where: { id: dto.parentId, studyId, isActive: true },
       });
       if (!parent) {
-        throw new NotFoundException('El detalle padre no existe en este estudio.');
+        throw new NotFoundException(
+          'El detalle padre no existe en este estudio.',
+        );
       }
     }
 
@@ -202,10 +302,17 @@ export class StudiesService {
    */
   async updateDetail(detailId: number, dto: UpdateStudyDetailDto) {
     const detail = await this.detailRepo.findOne({
-      where: { id: detailId, isActive: true },
+      where: { id: detailId },
     });
     if (!detail) {
       throw new NotFoundException('Detalle de estudio no encontrado.');
+    }
+
+    const study = await this.findOne(detail.studyId);
+    if (study.type === StudyType.PACKAGE) {
+      throw new BadRequestException(
+        'Los paquetes no administran parametros directos.',
+      );
     }
 
     if (dto.parentId) {
@@ -213,12 +320,30 @@ export class StudiesService {
         where: { id: dto.parentId, studyId: detail.studyId, isActive: true },
       });
       if (!parent) {
-        throw new NotFoundException('El detalle padre no existe en este estudio.');
+        throw new NotFoundException(
+          'El detalle padre no existe en este estudio.',
+        );
       }
     }
 
     const merged = this.detailRepo.merge(detail, dto);
     return this.detailRepo.save(merged);
+  }
+
+  async updateDetailStatus(detailId: number, dto: UpdateStudyDetailStatusDto) {
+    const detail = await this.detailRepo.findOne({
+      where: { id: detailId },
+    });
+    if (!detail) {
+      throw new NotFoundException('Detalle de estudio no encontrado.');
+    }
+
+    if (detail.isActive === dto.isActive) {
+      return detail;
+    }
+
+    detail.isActive = dto.isActive;
+    return this.detailRepo.save(detail);
   }
 
   /**

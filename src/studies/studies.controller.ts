@@ -1,10 +1,21 @@
-import {Controller, Get, Post, Body, Param, Query, Put, Delete, UseGuards,} from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  Put,
+  Delete,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { StudiesService } from './studies.service';
 import { CreateStudyDto } from './dto/create-study.dto';
 import { UpdateStudyDto } from './dto/update-study.dto';
 import { CreateStudyDetailDto } from './dto/create-study-detail.dto';
 import { UpdateStudyDetailDto } from './dto/update-study-detail.dto';
+import { UpdateStudyDetailStatusDto } from './dto/update-study-detail-status.dto';
 import { StudyStatus, StudyType } from './entities/study.entity';
 
 @UseGuards(AuthGuard('jwt'))
@@ -88,6 +99,20 @@ export class StudiesController {
     const detail = await this.studiesService.updateDetail(+detailId, dto);
     return {
       message: 'Detalle de estudio actualizado correctamente.',
+      data: detail,
+    };
+  }
+
+  @Put('details/:detailId/status')
+  async updateDetailStatus(
+    @Param('detailId') detailId: string,
+    @Body() dto: UpdateStudyDetailStatusDto,
+  ) {
+    const detail = await this.studiesService.updateDetailStatus(+detailId, dto);
+    return {
+      message: dto.isActive
+        ? 'Detalle de estudio activado correctamente.'
+        : 'Detalle de estudio suspendido correctamente.',
       data: detail,
     };
   }

@@ -1,8 +1,19 @@
-import {Controller, Get, Post, Body, Param, Query, Put, Delete, UseGuards,} from '@nestjs/common';
-import { DoctorsService } from './doctors.service';
-import { CreateDoctorDto } from './dto/create-doctor.dto';
-import { UpdateDoctorDto } from './dto/update-doctor.dto';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CreateDoctorDto } from './dto/create-doctor.dto';
+import { UpdateDoctorStatusDto } from './dto/update-doctor-status.dto';
+import { UpdateDoctorDto } from './dto/update-doctor.dto';
+import { DoctorsService } from './doctors.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('doctors')
@@ -14,8 +25,9 @@ export class DoctorsController {
     @Query('search') search = '',
     @Query('page') page = 1,
     @Query('limit') limit = 10,
+    @Query('status') status?: string,
   ) {
-    return this.doctorsService.search(search, +page, +limit);
+    return this.doctorsService.search(search, +page, +limit, status);
   }
 
   @Get('exists')
@@ -27,7 +39,7 @@ export class DoctorsController {
   async create(@Body() dto: CreateDoctorDto) {
     const doctor = await this.doctorsService.create(dto);
     return {
-      message: 'Médico creado correctamente.',
+      message: 'Medico creado correctamente.',
       data: doctor,
     };
   }
@@ -41,7 +53,21 @@ export class DoctorsController {
   async update(@Param('id') id: string, @Body() dto: UpdateDoctorDto) {
     const doctor = await this.doctorsService.update(+id, dto);
     return {
-      message: 'Médico actualizado correctamente.',
+      message: 'Medico actualizado correctamente.',
+      data: doctor,
+    };
+  }
+
+  @Put(':id/status')
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateDoctorStatusDto,
+  ) {
+    const doctor = await this.doctorsService.updateStatus(+id, dto);
+    return {
+      message: dto.isActive
+        ? 'Medico activado correctamente.'
+        : 'Medico desactivado correctamente.',
       data: doctor,
     };
   }

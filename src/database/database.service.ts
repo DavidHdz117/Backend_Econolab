@@ -14,7 +14,9 @@ export class DatabaseService implements OnModuleDestroy {
   ) {}
 
   getPoolByRole(role: SupportedDbRole | RoleCarrier): Pool {
-    return this.resolveRole(role) === Role.Admin ? this.adminPool : this.recepcionistaPool;
+    return this.resolveRole(role) === Role.Admin
+      ? this.adminPool
+      : this.recepcionistaPool;
   }
 
   async query<T extends QueryResultRow = QueryResultRow>(
@@ -30,7 +32,8 @@ export class DatabaseService implements OnModuleDestroy {
     role: SupportedDbRole | RoleCarrier,
     text: string,
     values: readonly unknown[] = [],
-    schema = this.config.get<string>('DATABASE_OPERATIVE_SCHEMA') ?? 'operativo',
+    schema = this.config.get<string>('DATABASE_OPERATIVE_SCHEMA') ??
+      'operativo',
   ): Promise<QueryResult<T>> {
     const safeSchema = this.assertSafeSchema(schema);
     const pool = this.getPoolByRole(role);
@@ -58,9 +61,11 @@ export class DatabaseService implements OnModuleDestroy {
     const rawRole =
       typeof roleOrUser === 'string'
         ? roleOrUser
-        : roleOrUser.role ?? roleOrUser.rol ?? Role.Recepcionista;
+        : (roleOrUser.role ?? roleOrUser.rol ?? Role.Recepcionista);
 
-    return rawRole === Role.Admin || rawRole === 'admin' ? Role.Admin : Role.Recepcionista;
+    return rawRole === Role.Admin || rawRole === 'admin'
+      ? Role.Admin
+      : Role.Recepcionista;
   }
 
   private assertSafeSchema(schema: string): string {

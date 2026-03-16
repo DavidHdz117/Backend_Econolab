@@ -1,4 +1,14 @@
-import {Body, Controller, Get, Post, Req, Res, UseGuards, UsePipes, ValidationPipe,} from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
@@ -12,7 +22,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly config: ConfigService,
-  ) { }
+  ) {}
 
   /* ───────── Login con usuario/contraseña ───────── */
   @Post('login')
@@ -34,11 +44,11 @@ export class AuthController {
 
     const params = new URLSearchParams({
       client_id: clientId!,
-      redirect_uri: redirectUri!,                 // http://localhost:3000/api/auth/google/callback
+      redirect_uri: redirectUri!, // http://localhost:3000/api/auth/google/callback
       response_type: 'code',
       scope: 'openid email profile',
       access_type: 'offline',
-      prompt: 'consent',                          // fuerza selector de cuenta
+      prompt: 'consent', // fuerza selector de cuenta
     });
 
     const googleUrl = `${root}?${params.toString()}`;
@@ -61,11 +71,11 @@ export class AuthController {
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
 
     const url =
-    `${frontendUrl}/auth/google` +
-    `?token=${encodeURIComponent(result.token)}` +
-    `&message=${encodeURIComponent(result.message ?? 'Autenticado con Google')}` +
-    `&email=${encodeURIComponent(result.usuario.email)}` +
-    `&rol=${encodeURIComponent(result.usuario.rol)}`;
+      `${frontendUrl}/auth/google` +
+      `?token=${encodeURIComponent(result.token)}` +
+      `&message=${encodeURIComponent(result.message ?? 'Autenticado con Google')}` +
+      `&email=${encodeURIComponent(result.usuario.email)}` +
+      `&rol=${encodeURIComponent(result.usuario.rol)}`;
 
     console.log('REDIRECT FRONT:', url.toString());
 

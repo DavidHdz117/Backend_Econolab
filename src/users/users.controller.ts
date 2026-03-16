@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Patch, Param, UseGuards, Req, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  UseGuards,
+  Req,
+  Delete,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { MailService } from 'src/mail/mail.service';
@@ -19,7 +29,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
-  ) { }
+  ) {}
 
   @Post('register')
   async register(@Body() dto: CreateUserDto) {
@@ -64,10 +74,7 @@ export class UsersController {
   /* ---------- Cambiar contraseña autenticado ---------- */
   @UseGuards(JwtAuthGuard)
   @Patch('update-password')
-  updatePassword(
-    @Req() req,
-    @Body() dto: UpdatePasswordDto,
-  ) {
+  updatePassword(@Req() req, @Body() dto: UpdatePasswordDto) {
     return this.usersService.updatePassword(
       req.user.id,
       dto.current_password,
@@ -81,13 +88,12 @@ export class UsersController {
   checkPassword(@Req() req, @Body('password') password: string) {
     return this.usersService.checkPassword(req.user.id, password);
   }
-
 }
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('admin/users')            // prefijo claro
+@Controller('admin/users') // prefijo claro
 export class AdminUsersController {
-  constructor(private readonly users: UsersService) { }
+  constructor(private readonly users: UsersService) {}
 
   /** Confirmados pero sin rol */
   @Get('unassigned')

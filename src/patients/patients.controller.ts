@@ -1,8 +1,19 @@
-import {Controller, Get, Post, Body, Param, Query, Put, Delete, UseGuards} from '@nestjs/common';
-import { PatientsService } from './patients.service';
-import { CreatePatientDto } from './dto/create-patient.dto';
-import { UpdatePatientDto } from './dto/update-patient.dto';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CreatePatientDto } from './dto/create-patient.dto';
+import { UpdatePatientStatusDto } from './dto/update-patient-status.dto';
+import { UpdatePatientDto } from './dto/update-patient.dto';
+import { PatientsService } from './patients.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('patients')
@@ -14,8 +25,9 @@ export class PatientsController {
     @Query('search') search = '',
     @Query('page') page = 1,
     @Query('limit') limit = 10,
+    @Query('status') status?: string,
   ) {
-    return this.patientsService.search(search, +page, +limit);
+    return this.patientsService.search(search, +page, +limit, status);
   }
 
   @Get('exists')
@@ -49,14 +61,22 @@ export class PatientsController {
     };
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    // patientsService.softDelete ya devuelve message
-    return this.patientsService.softDelete(+id);
+  @Put(':id/status')
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdatePatientStatusDto,
+  ) {
+    const patient = await this.patientsService.updateStatus(+id, dto);
+    return {
+      message: dto.isActive
+        ? 'Paciente activado correctamente.'
+        : 'Paciente desactivado correctamente.',
+      data: patient,
+    };
   }
 
-  @Delete(':id/hard')
-  hardRemove(@Param('id') id: string) {
-    return this.patientsService.hardDelete(+id);
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.patientsService.softDelete(+id);
   }
 }

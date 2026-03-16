@@ -6,20 +6,30 @@ import { User } from 'src/users/entities/user.entity';
 
 @Injectable()
 export class AuthEventsService {
-    constructor(
-        @InjectRepository(UserLoginLog) private logsRepo: Repository<UserLoginLog>,
-        @InjectRepository(User) private usersRepo: Repository<User>,
-    ) { }
+  constructor(
+    @InjectRepository(UserLoginLog) private logsRepo: Repository<UserLoginLog>,
+    @InjectRepository(User) private usersRepo: Repository<User>,
+  ) {}
 
-    async logSuccess(user: User, ip?: string, ua?: string) {
-        await this.logsRepo.save(this.logsRepo.create({
-            user, success: true, ip: ip ?? null, userAgent: ua ?? null,
-        }));
-    }
+  async logSuccess(user: User, ip?: string, ua?: string) {
+    await this.logsRepo.save(
+      this.logsRepo.create({
+        user,
+        success: true,
+        ip: ip ?? null,
+        userAgent: ua ?? null,
+      }),
+    );
+  }
 
-    async logFailure(email: string | null, ip?: string, ua?: string) {
-        await this.logsRepo.save(this.logsRepo.create({
-            emailIntent: email ?? null, success: false, ip: ip ?? null, userAgent: ua ?? null,
-        }));
-    }
+  async logFailure(email: string | null, ip?: string, ua?: string) {
+    await this.logsRepo.save(
+      this.logsRepo.create({
+        emailIntent: email ?? null,
+        success: false,
+        ip: ip ?? null,
+        userAgent: ua ?? null,
+      }),
+    );
+  }
 }

@@ -1,4 +1,16 @@
-import {Controller, Get, Post, Body, Param, Query, Put, Delete, UseGuards, Res, ParseIntPipe,} from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  Put,
+  Delete,
+  UseGuards,
+  Res,
+  ParseIntPipe,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ServicesService } from './services.service';
 import { CreateServiceDto } from './dto/create-service.dto';
@@ -25,6 +37,7 @@ export class ServicesController {
   search(
     @Query('search') search?: string,
     @Query('status') status?: ServiceStatus,
+    @Query('branchName') branchName?: string,
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
     @Query('page') page = '1',
@@ -33,6 +46,7 @@ export class ServicesController {
     return this.servicesService.search({
       search,
       status,
+      branchName,
       fromDate,
       toDate,
       page: Number(page),
@@ -46,34 +60,43 @@ export class ServicesController {
   }
 
   @Get(':id/receipt')
-  async downloadReceipt(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+  async downloadReceipt(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
     const buffer = await this.servicesService.generateReceiptPdf(id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename=\"recibo-${id}.pdf\"`,
+      `inline; filename="recibo-${id}.pdf"`,
     );
     res.send(buffer);
   }
 
   @Get(':id/labels')
-  async downloadLabels(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+  async downloadLabels(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
     const buffer = await this.servicesService.generateTubeLabelsPdf(id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename=\"etiquetas-${id}.pdf\"`,
+      `inline; filename="etiquetas-${id}.pdf"`,
     );
     res.send(buffer);
   }
 
   @Get(':id/ticket')
-  async downloadTicket(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+  async downloadTicket(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
     const buffer = await this.servicesService.generateTicketPdf(id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename=\"ticket-${id}.pdf\"`,
+      `inline; filename="ticket-${id}.pdf"`,
     );
     res.send(buffer);
   }
@@ -84,7 +107,10 @@ export class ServicesController {
   }
 
   @Put(':id')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateServiceDto) {
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateServiceDto,
+  ) {
     const service = await this.servicesService.update(id, dto);
     return {
       message: 'Servicio actualizado correctamente.',

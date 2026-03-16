@@ -1,4 +1,9 @@
-import {ForbiddenException, Injectable, NotFoundException, UnauthorizedException} from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -23,7 +28,7 @@ export class AuthService {
 
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
-  ) { }
+  ) {}
 
   /* ───────────────────────── Helpers internos ───────────────────────── */
 

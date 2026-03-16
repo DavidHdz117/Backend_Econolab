@@ -4,11 +4,11 @@ import { Role } from '../enums/roles.enum';
 
 /** Payload que graba dentro del JWT */
 export interface AppJwtPayload extends jwt.JwtPayload {
-  sub: string;        // id del usuario
+  sub: string; // id del usuario
   email: string;
   nombre: string;
   rol: Role;
-  jti?: string;       // id de la sesión
+  jti?: string; // id de la sesión
   iat?: number;
   exp?: number;
 }

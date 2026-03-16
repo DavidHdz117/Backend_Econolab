@@ -2,7 +2,10 @@ import { ConfigService } from '@nestjs/config';
 import { Pool, type PoolConfig } from 'pg';
 import { DB_ADMIN_POOL, DB_RECEPCIONISTA_POOL } from './database.constants';
 
-const toNumber = (value: string | number | undefined, fallback: number): number => {
+const toNumber = (
+  value: string | number | undefined,
+  fallback: number,
+): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
@@ -11,7 +14,8 @@ const resolveSsl = (value: string | undefined): PoolConfig['ssl'] => {
   if (!value) return { rejectUnauthorized: false };
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'false' || normalized === '0' || normalized === 'off') return false;
+  if (normalized === 'false' || normalized === '0' || normalized === 'off')
+    return false;
   return { rejectUnauthorized: false };
 };
 
@@ -39,8 +43,11 @@ export const databaseProviders = [
     useFactory: (config: ConfigService) =>
       new Pool({
         ...buildBaseConfig(config),
-        user: config.get<string>('DATABASE_RECEPCIONISTA_USER') ?? 'db_recepcionista',
-        password: config.get<string>('DATABASE_RECEPCIONISTA_PASS') ?? 'recep_password',
+        user:
+          config.get<string>('DATABASE_RECEPCIONISTA_USER') ??
+          'db_recepcionista',
+        password:
+          config.get<string>('DATABASE_RECEPCIONISTA_PASS') ?? 'recep_password',
       }),
   },
 ];

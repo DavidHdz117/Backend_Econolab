@@ -5,7 +5,10 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from 'src/users/users.service';
 
 @Injectable()
-export class GoogleStrategy extends PassportStrategy(Strategy as any, 'google') {
+export class GoogleStrategy extends PassportStrategy(
+  Strategy as any,
+  'google',
+) {
   constructor(
     private readonly cfg: ConfigService,
     private readonly usersService: UsersService,
@@ -18,11 +21,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy as any, 'google') 
     } as any);
   }
 
-  async validate(
-    accessToken: string,
-    refreshToken: string,
-    profile: Profile,
-  ) {
+  async validate(accessToken: string, refreshToken: string, profile: Profile) {
     const email = profile.emails?.[0]?.value;
     const nombre = profile.displayName;
 

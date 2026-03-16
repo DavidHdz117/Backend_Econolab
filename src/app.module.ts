@@ -12,6 +12,8 @@ import { DoctorsModule } from './doctors/doctors.module';
 import { StudiesModule } from './studies/studies.module';
 import { ServicesModule } from './services/services.module';
 import { ResultsModule } from './results/results.module';
+import { HistoryModule } from './history/history.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { ResultsModule } from './results/results.module';
     StudiesModule,
     ServicesModule,
     ResultsModule,
+    HistoryModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

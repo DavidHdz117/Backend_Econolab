@@ -1,32 +1,32 @@
 import {
-    Entity,
-    PrimaryGeneratedColumn,
-    Column,
-    ManyToOne,
-    CreateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  CreateDateColumn,
 } from 'typeorm';
 import { User } from 'src/users/entities/user.entity';
 
 @Entity()
 export class UserSession {
-    @PrimaryGeneratedColumn('uuid')
-    id: string; // jti
+  @PrimaryGeneratedColumn('uuid')
+  id: string; // jti
 
-    @ManyToOne(() => User, user => user.sessions, { onDelete: 'CASCADE' })
-    user: User;
+  @ManyToOne(() => User, (user) => user.sessions, { onDelete: 'CASCADE' })
+  user: User;
 
-    @Column({ type: 'timestamp' })
-    expiresAt: Date;
+  @Column({ type: 'timestamp' })
+  expiresAt: Date;
 
-    @Column({ type: 'boolean', default: false })
-    revoked: boolean;
+  @Column({ type: 'boolean', default: false })
+  revoked: boolean;
 
-    @Column({ type: 'varchar', length: 45, nullable: true }) // IPv4/IPv6
-    ip: string | null;
+  @Column({ type: 'varchar', length: 45, nullable: true }) // IPv4/IPv6
+  ip: string | null;
 
-    @Column({ type: 'text', nullable: true })
-    userAgent: string | null;
+  @Column({ type: 'text', nullable: true })
+  userAgent: string | null;
 
-    @CreateDateColumn()
-    createdAt: Date;
+  @CreateDateColumn()
+  createdAt: Date;
 }

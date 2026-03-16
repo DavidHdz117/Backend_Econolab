@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -8,14 +13,12 @@ import { generateRandomToken } from 'src/common/utils/token.util';
 import { Role } from 'src/common/enums/roles.enum';
 import { MailService } from 'src/mail/mail.service';
 
-
-
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly userRepository: Repository<User>,
-    private readonly mailService: MailService
-  ) { }
+    private readonly mailService: MailService,
+  ) {}
 
   async registerFailedLogin(user: User) {
     const MAX_ATTEMPTS = 3;
@@ -73,14 +76,14 @@ export class UsersService {
     }
 
     const now = new Date();
-    const WINDOW_HOURS = 1;     // ventana de 1 hora
-    const MAX_REQUESTS = 3;     // máximo 3 correos por hora
+    const WINDOW_HOURS = 1; // ventana de 1 hora
+    const MAX_REQUESTS = 3; // máximo 3 correos por hora
 
     // Reiniciar ventana si ya pasó la hora
     if (
       !user.resetRequestWindowStart ||
       now.getTime() - user.resetRequestWindowStart.getTime() >
-      WINDOW_HOURS * 60 * 60 * 1000
+        WINDOW_HOURS * 60 * 60 * 1000
     ) {
       user.resetRequestWindowStart = now;
       user.resetRequestCount = 0;
@@ -109,7 +112,6 @@ export class UsersService {
     return genericResponse;
   }
 
-
   /* ───────── Validar token de reset ───────── */
   async validateResetToken(token: string) {
     const user = await this.findByToken(token);
@@ -121,7 +123,6 @@ export class UsersService {
 
     return { message: 'Token válido...' };
   }
-
 
   /* ───────── Reset con token ───────── */
   async resetPassword(token: string, newPass: string) {
@@ -144,7 +145,6 @@ export class UsersService {
     return { message: 'La contraseña se modificó correctamente' };
   }
 
-
   /* ───────── Cambiar contraseña autenticado ───────── */
   async updatePassword(userId: string, currentPass: string, newPass: string) {
     const user = await this.findOne(userId);
@@ -165,17 +165,16 @@ export class UsersService {
     return { message: 'Contraseña correcta' };
   }
 
-
   /* ───────── Funciones de administrador ───────── */
   async findConfirmed() {
     return this.userRepository.find({ where: { confirmed: true } });
   }
 
   async setRole(id: string, rol: Role) {
-
     const user = await this.findOne(id);
     if (!user) throw new NotFoundException('Usuario no encontrado');
-    if (!user.confirmed) throw new UnauthorizedException('El usuario no ha confirmado su cuenta');
+    if (!user.confirmed)
+      throw new UnauthorizedException('El usuario no ha confirmado su cuenta');
     user.rol = rol;
     await this.userRepository.save(user);
     return { message: 'Rol actualizado', usuario: { id: user.id, rol } };
@@ -195,9 +194,7 @@ export class UsersService {
 
   async findConfirmedWithRoles() {
     const users = await this.userRepository.find({
-      where: [
-        { confirmed: true, rol: Role.Recepcionista || Role.Admin },
-      ],
+      where: [{ confirmed: true, rol: Role.Recepcionista || Role.Admin }],
       order: { createdAt: 'ASC' },
     });
     if (users !== null) return users;
@@ -217,7 +214,6 @@ export class UsersService {
 
     return { message: 'Usuario eliminado' };
   }
-
 
   /* ───────── CRUD helpers ───────── */
   async findOne(id: string) {
@@ -247,7 +243,7 @@ export class UsersService {
   async getRoleOnly(id: string): Promise<Role | null> {
     const record = await this.userRepository.findOne({
       where: { id },
-      select: ['rol'],          // ← solo la columna rol (rápido)
+      select: ['rol'], // ← solo la columna rol (rápido)
     });
     return record?.rol ?? null;
   }
@@ -257,16 +253,14 @@ export class UsersService {
     email: string;
     googleId: string;
   }) {
-    const randomPass = await hashPassword(
-      `google-${data.email}-${Date.now()}`
-    );
+    const randomPass = await hashPassword(`google-${data.email}-${Date.now()}`);
 
     const user = this.userRepository.create({
       nombre: data.nombre,
       email: data.email,
       password: randomPass,
       confirmed: true,
-      rol: Role.Admin,        // 👈 ADMIN directo (SOLO pruebas)
+      rol: Role.Admin, // 👈 ADMIN directo (SOLO pruebas)
       // si tu entidad tiene estos campos, puedes guardarlos:
       // googleId: data.googleId,
       // provider: 'google',
@@ -278,7 +272,7 @@ export class UsersService {
   /** Marcar usuario como confirmado (si viene de Google) */
   async confirmFromGoogle(user: User) {
     user.confirmed = true;
-    user.token = null;         // si usas token de confirmación
+    user.token = null; // si usas token de confirmación
     return this.userRepository.save(user);
   }
 

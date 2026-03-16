@@ -1,13 +1,26 @@
-import { Injectable, NotFoundException, BadRequestException,} from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {ServiceOrder, ServiceOrderItem, ServiceItemPriceType, ServiceStatus,} from './entities/service-order.entity';
+import {
+  ServiceOrder,
+  ServiceOrderItem,
+  ServiceItemPriceType,
+  ServiceStatus,
+} from './entities/service-order.entity';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import { UpdateServiceStatusDto } from './dto/update-service-status.dto';
 import { Patient } from '../patients/entities/patient.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
-import { Study } from '../studies/entities/study.entity';
+import {
+  Study,
+  StudyStatus,
+  StudyType,
+} from '../studies/entities/study.entity';
 import PDFDocument = require('pdfkit');
 import * as fs from 'fs';
 import * as bwipjs from 'bwip-js';
@@ -25,7 +38,7 @@ export class ServicesService {
     private readonly doctorRepo: Repository<Doctor>,
     @InjectRepository(Study)
     private readonly studyRepo: Repository<Study>,
-  ) { }
+  ) {}
 
   // --------- Helpers ---------
 
@@ -85,6 +98,21 @@ export class ServicesService {
   private formatMoney(value: unknown) {
     const amount = this.toNumber(value);
     return `$ ${amount.toFixed(2)}`;
+  }
+
+  private normalizeSearchText(value?: string | null) {
+    if (!value) return '';
+
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private sqlNormalizedExpression(expression: string) {
+    return `regexp_replace(translate(lower(coalesce(${expression}, '')), 'áàäâéèëêíìïîóòöôúùüûñ', 'aaaaeeeeiiiioooouuuun'), '[^a-z0-9]+', '', 'g')`;
   }
 
   private mapPriceTypeLabel(type: ServiceItemPriceType) {
@@ -157,7 +185,9 @@ export class ServicesService {
       female: 'Femenino',
       other: 'Otro',
     };
-    const genderLabel = patient?.gender ? genderMap[patient.gender] ?? patient.gender : '';
+    const genderLabel = patient?.gender
+      ? (genderMap[patient.gender] ?? patient.gender)
+      : '';
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 40, size: 'A4' });
@@ -189,29 +219,70 @@ export class ServicesService {
         fit: [95, 52],
       });
       if (!hasLogo) {
-        doc.rect(left, headerY + 6, 95, 52).strokeColor('#cccccc').stroke();
-        doc.font('Helvetica').fontSize(8).fillColor('#666666').text('LOGO', left, headerY + 26, {
-          width: 95,
-          align: 'center',
-        }).fillColor('black');
+        doc
+          .rect(left, headerY + 6, 95, 52)
+          .strokeColor('#cccccc')
+          .stroke();
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#666666')
+          .text('LOGO', left, headerY + 26, {
+            width: 95,
+            align: 'center',
+          })
+          .fillColor('black');
       }
 
-      doc.font('Helvetica-Bold').fontSize(15).text(labName, 150, headerY, { width: 265, align: 'center' });
-      doc.font('Helvetica-Bold').fontSize(8.5).text(labSubtitle, 150, headerY + 18, { width: 265, align: 'center' });
-      doc.font('Helvetica-Bold').fontSize(8.5).text(labAddress, 150, headerY + 30, { width: 265, align: 'center' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text(labName, 150, headerY, { width: 265, align: 'center' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(8.5)
+        .text(labSubtitle, 150, headerY + 18, { width: 265, align: 'center' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(8.5)
+        .text(labAddress, 150, headerY + 30, { width: 265, align: 'center' });
       if (labAddress2) {
-        doc.font('Helvetica-Bold').fontSize(8.5).text(labAddress2, 150, headerY + 42, { width: 265, align: 'center' });
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(8.5)
+          .text(labAddress2, 150, headerY + 42, {
+            width: 265,
+            align: 'center',
+          });
       }
       if (labPhone) {
-        doc.font('Helvetica-Bold').fontSize(8.5).text(`TELEFONO ${labPhone}`, 150, headerY + 54, { width: 265, align: 'center' });
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(8.5)
+          .text(`TELEFONO ${labPhone}`, 150, headerY + 54, {
+            width: 265,
+            align: 'center',
+          });
       }
 
-      doc.font('Helvetica-Bold').fontSize(12).text('FOLIO', 440, headerY + 4, { width: 115, align: 'right' });
-      doc.text(service.folio ?? '', 440, headerY + 24, { width: 115, align: 'right' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(12)
+        .text('FOLIO', 440, headerY + 4, { width: 115, align: 'right' });
+      doc.text(service.folio ?? '', 440, headerY + 24, {
+        width: 115,
+        align: 'right',
+      });
 
       if (barcodeBuffer) {
         doc.image(barcodeBuffer, 405, headerY + 48, { width: 150, height: 36 });
-        doc.font('Helvetica').fontSize(8).text(barcodeText, 405, headerY + 86, { width: 150, align: 'center' });
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .text(barcodeText, 405, headerY + 86, {
+            width: 150,
+            align: 'center',
+          });
       }
 
       doc.moveTo(left, 158).lineTo(right, 158).strokeColor('#999999').stroke();
@@ -219,21 +290,46 @@ export class ServicesService {
       doc.font('Helvetica-Bold').fontSize(9);
       doc.text(`PACIENTE: ${patientName}`, left, 170, { width: 260 });
       doc.text(`TEL:${patient?.phone ?? ''}`, left, 186, { width: 260 });
-      doc.text(`DIRECCION: ${patient?.addressLine ?? ''}`, left, 202, { width: 260 });
-      doc.text(`ENTRE CALLES: ${patient?.addressBetween ?? ''}`, left, 218, { width: 260 });
+      doc.text(`DIRECCION: ${patient?.addressLine ?? ''}`, left, 202, {
+        width: 260,
+      });
+      doc.text(`ENTRE CALLES: ${patient?.addressBetween ?? ''}`, left, 218, {
+        width: 260,
+      });
 
-      doc.text(`FECHA: ${this.formatDate(service.createdAt)}`, 280, 170, { width: 165 });
-      doc.text(`EDAD: ${this.calcAge(patient?.birthDate)}`, 280, 186, { width: 165 });
+      doc.text(`FECHA: ${this.formatDate(service.createdAt)}`, 280, 170, {
+        width: 165,
+      });
+      doc.text(`EDAD: ${this.calcAge(patient?.birthDate)}`, 280, 186, {
+        width: 165,
+      });
       doc.text(`SEXO: ${genderLabel}`, 280, 202, { width: 165 });
-      doc.text(`FECHA DE ENTREGA: ${this.formatDate(service.deliveryAt)}`, 280, 218, { width: 220 });
+      doc.text(
+        `FECHA DE ENTREGA: ${this.formatDate(service.deliveryAt)}`,
+        280,
+        218,
+        { width: 220 },
+      );
 
       doc.font('Helvetica-Bold').fontSize(10);
-      doc.text(`SUC: ${service.branchName ?? ''}`, 440, 186, { width: 115, align: 'left' });
-      doc.text(`FOLIO: ${service.folio ?? ''}`, 440, 204, { width: 115, align: 'left' });
+      doc.text(`SUC: ${service.branchName ?? ''}`, 440, 186, {
+        width: 115,
+        align: 'left',
+      });
+      doc.text(`FOLIO: ${service.folio ?? ''}`, 440, 204, {
+        width: 115,
+        align: 'left',
+      });
 
       doc.moveTo(left, 238).lineTo(right, 238).strokeColor('#999999').stroke();
 
-      const colX = { name: left + 8, type: 250, price: 335, discount: 420, total: 500 };
+      const colX = {
+        name: left + 8,
+        type: 250,
+        price: 335,
+        discount: 420,
+        total: 500,
+      };
       const tableY = 248;
       doc
         .font('Helvetica-Bold')
@@ -244,7 +340,11 @@ export class ServicesService {
         .text('DESC.', colX.discount, tableY, { width: 60, align: 'center' })
         .text('TOTAL', colX.total, tableY, { width: 55, align: 'right' });
 
-      doc.moveTo(left + 8, tableY + 22).lineTo(right, tableY + 22).strokeColor('#999999').stroke();
+      doc
+        .moveTo(left + 8, tableY + 22)
+        .lineTo(right, tableY + 22)
+        .strokeColor('#999999')
+        .stroke();
 
       let rowY = tableY + 32;
       doc.font('Helvetica').fontSize(10);
@@ -253,12 +353,37 @@ export class ServicesService {
         const unitPrice = this.toNumber(item.unitPrice);
         const itemDiscount = this.toNumber(item.discountPercent);
 
-        doc.text(this.truncate(item.studyNameSnapshot ?? '', 40), colX.name, rowY, { width: 210 });
-        doc.fontSize(8).text(`DESCRIPCION: ${this.truncate(item.studyNameSnapshot ?? '', 42)}`, colX.name, rowY + 12, { width: 210 });
-        doc.fontSize(10).text(this.mapPriceTypeLabel(item.priceType), colX.type, rowY + 4, { width: 40 });
-        doc.text(this.formatMoney(unitPrice), colX.price, rowY + 4, { width: 80, align: 'right' });
-        doc.text(`${itemDiscount} %`, colX.discount, rowY + 4, { width: 60, align: 'right' });
-        doc.text(this.formatMoney(lineTotal), colX.total, rowY + 4, { width: 55, align: 'right' });
+        doc.text(
+          this.truncate(item.studyNameSnapshot ?? '', 40),
+          colX.name,
+          rowY,
+          { width: 210 },
+        );
+        doc
+          .fontSize(8)
+          .text(
+            `DESCRIPCION: ${this.truncate(item.studyNameSnapshot ?? '', 42)}`,
+            colX.name,
+            rowY + 12,
+            { width: 210 },
+          );
+        doc
+          .fontSize(10)
+          .text(this.mapPriceTypeLabel(item.priceType), colX.type, rowY + 4, {
+            width: 40,
+          });
+        doc.text(this.formatMoney(unitPrice), colX.price, rowY + 4, {
+          width: 80,
+          align: 'right',
+        });
+        doc.text(`${itemDiscount} %`, colX.discount, rowY + 4, {
+          width: 60,
+          align: 'right',
+        });
+        doc.text(this.formatMoney(lineTotal), colX.total, rowY + 4, {
+          width: 55,
+          align: 'right',
+        });
         rowY += 34;
       }
 
@@ -269,18 +394,33 @@ export class ServicesService {
       const total = this.toNumber(service.totalAmount);
 
       let totalsY = Math.max(rowY + 20, 400);
-      doc.moveTo(350, totalsY - 6).lineTo(right, totalsY - 6).strokeColor('#999999').stroke();
+      doc
+        .moveTo(350, totalsY - 6)
+        .lineTo(right, totalsY - 6)
+        .strokeColor('#999999')
+        .stroke();
       doc.text('SUBTOTAL:', 430, totalsY, { width: 70, align: 'right' });
-      doc.text(this.formatMoney(subtotal), 500, totalsY, { width: 55, align: 'right' });
+      doc.text(this.formatMoney(subtotal), 500, totalsY, {
+        width: 55,
+        align: 'right',
+      });
       totalsY += 16;
       doc.text('CORTESIA:', 430, totalsY, { width: 70, align: 'right' });
       doc.text(`${courtesy} %`, 500, totalsY, { width: 55, align: 'right' });
       totalsY += 16;
       doc.text('DESC. TOTAL:', 430, totalsY, { width: 70, align: 'right' });
-      doc.text(this.formatMoney(discount), 500, totalsY, { width: 55, align: 'right' });
+      doc.text(this.formatMoney(discount), 500, totalsY, {
+        width: 55,
+        align: 'right',
+      });
       totalsY += 16;
-      doc.font('Helvetica-Bold').text('TOTAL:', 430, totalsY, { width: 70, align: 'right' });
-      doc.text(this.formatMoney(total), 500, totalsY, { width: 55, align: 'right' });
+      doc
+        .font('Helvetica-Bold')
+        .text('TOTAL:', 430, totalsY, { width: 70, align: 'right' });
+      doc.text(this.formatMoney(total), 500, totalsY, {
+        width: 55,
+        align: 'right',
+      });
       doc.font('Helvetica');
 
       if (labPhone) doc.fontSize(8).text(`Tel: ${labPhone}`, left, 700);
@@ -308,7 +448,9 @@ export class ServicesService {
       female: 'Femenino',
       other: 'Otro',
     };
-    const genderLabel = patient?.gender ? genderMap[patient.gender] ?? patient.gender : '';
+    const genderLabel = patient?.gender
+      ? (genderMap[patient.gender] ?? patient.gender)
+      : '';
     const ticketWidth = 226.77; // 80mm
 
     return new Promise((resolve, reject) => {
@@ -327,15 +469,35 @@ export class ServicesService {
         }
       }
 
-      doc.font('Helvetica-Bold').fontSize(6.5).text(labName, 14, 66, { width: ticketWidth - 28, align: 'center' });
-      doc.fontSize(6).text(labSubtitle, 14, 76, { width: ticketWidth - 28, align: 'center' });
-      doc.text(labAddress, 14, 85, { width: ticketWidth - 28, align: 'center' });
-      if (labAddress2) doc.text(labAddress2, 14, 93, { width: ticketWidth - 28, align: 'center' });
-      if (labPhone) doc.text(`TEL. ${labPhone}`, 14, 101, { width: ticketWidth - 28, align: 'center' });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(6.5)
+        .text(labName, 14, 66, { width: ticketWidth - 28, align: 'center' });
+      doc.fontSize(6).text(labSubtitle, 14, 76, {
+        width: ticketWidth - 28,
+        align: 'center',
+      });
+      doc.text(labAddress, 14, 85, {
+        width: ticketWidth - 28,
+        align: 'center',
+      });
+      if (labAddress2)
+        doc.text(labAddress2, 14, 93, {
+          width: ticketWidth - 28,
+          align: 'center',
+        });
+      if (labPhone)
+        doc.text(`TEL. ${labPhone}`, 14, 101, {
+          width: ticketWidth - 28,
+          align: 'center',
+        });
 
       let y = 116;
       doc.fontSize(6.8).text(`FOLIO ${service.folio ?? ''}`, 14, y);
-      doc.text(`SUC: ${service.branchName ?? ''}`, 124, y, { width: 88, align: 'right' });
+      doc.text(`SUC: ${service.branchName ?? ''}`, 124, y, {
+        width: 88,
+        align: 'right',
+      });
       y += 10;
       doc.text(`FECHA: ${this.formatDate(service.createdAt)}`, 14, y);
       y += 10;
@@ -345,15 +507,34 @@ export class ServicesService {
       y += 10;
       doc.text(`TEL: ${patient?.phone ?? ''}`, 14, y);
       y += 10;
-      doc.text(`DIRECCION: ${this.truncate(patient?.addressLine ?? '', 26)}`, 14, y);
+      doc.text(
+        `DIRECCION: ${this.truncate(patient?.addressLine ?? '', 26)}`,
+        14,
+        y,
+      );
       y += 10;
-      doc.text(`ENTRE CALLES: ${this.truncate(patient?.addressBetween ?? '', 24)}`, 14, y);
+      doc.text(
+        `ENTRE CALLES: ${this.truncate(patient?.addressBetween ?? '', 24)}`,
+        14,
+        y,
+      );
       y += 10;
-      doc.text(`SEXO: ${genderLabel}`, 124, y - 20, { width: 88, align: 'left' });
-      doc.text(`FECHA DE ENTREGA: ${this.formatDate(service.deliveryAt)}`, 14, y);
+      doc.text(`SEXO: ${genderLabel}`, 124, y - 20, {
+        width: 88,
+        align: 'left',
+      });
+      doc.text(
+        `FECHA DE ENTREGA: ${this.formatDate(service.deliveryAt)}`,
+        14,
+        y,
+      );
       y += 12;
 
-      doc.moveTo(14, y).lineTo(ticketWidth - 14, y).strokeColor('#999999').stroke();
+      doc
+        .moveTo(14, y)
+        .lineTo(ticketWidth - 14, y)
+        .strokeColor('#999999')
+        .stroke();
       y += 6;
 
       doc.font('Helvetica-Bold').fontSize(6.8);
@@ -363,7 +544,11 @@ export class ServicesService {
       doc.text('DESC.', 160, y, { width: 24, align: 'right' });
       doc.text('TOTAL', 186, y, { width: 26, align: 'right' });
       y += 8;
-      doc.moveTo(14, y).lineTo(ticketWidth - 14, y).strokeColor('#999999').stroke();
+      doc
+        .moveTo(14, y)
+        .lineTo(ticketWidth - 14, y)
+        .strokeColor('#999999')
+        .stroke();
       y += 4;
 
       doc.font('Helvetica').fontSize(6.6);
@@ -371,13 +556,29 @@ export class ServicesService {
         const lineTotal = this.toNumber(item.subtotalAmount);
         const unitPrice = this.toNumber(item.unitPrice);
         const itemDiscount = this.toNumber(item.discountPercent);
-        doc.text(this.truncate(item.studyNameSnapshot ?? '', 24), 14, y, { width: 92 });
+        doc.text(this.truncate(item.studyNameSnapshot ?? '', 24), 14, y, {
+          width: 92,
+        });
         doc.text(this.mapPriceTypeLabel(item.priceType), 108, y, { width: 20 });
-        doc.text(this.formatMoney(unitPrice), 126, y, { width: 34, align: 'right' });
+        doc.text(this.formatMoney(unitPrice), 126, y, {
+          width: 34,
+          align: 'right',
+        });
         doc.text(`${itemDiscount} %`, 160, y, { width: 24, align: 'right' });
-        doc.text(this.formatMoney(lineTotal), 186, y, { width: 26, align: 'right' });
+        doc.text(this.formatMoney(lineTotal), 186, y, {
+          width: 26,
+          align: 'right',
+        });
         y += 8;
-        doc.fontSize(5.8).fillColor('#555555').text(`DESCRIPCION: ${this.truncate(item.studyNameSnapshot ?? '', 26)}`, 20, y, { width: 84 });
+        doc
+          .fontSize(5.8)
+          .fillColor('#555555')
+          .text(
+            `DESCRIPCION: ${this.truncate(item.studyNameSnapshot ?? '', 26)}`,
+            20,
+            y,
+            { width: 84 },
+          );
         doc.fontSize(6.6).fillColor('black');
         y += 10;
       }
@@ -388,17 +589,29 @@ export class ServicesService {
       const total = this.toNumber(service.totalAmount);
 
       y += 8;
-      doc.moveTo(110, y - 4).lineTo(ticketWidth - 14, y - 4).strokeColor('#999999').stroke();
+      doc
+        .moveTo(110, y - 4)
+        .lineTo(ticketWidth - 14, y - 4)
+        .strokeColor('#999999')
+        .stroke();
       doc.text('SUBTOTAL:', 126, y, { width: 58, align: 'right' });
-      doc.text(this.formatMoney(subtotal), 186, y, { width: 26, align: 'right' });
+      doc.text(this.formatMoney(subtotal), 186, y, {
+        width: 26,
+        align: 'right',
+      });
       y += 9;
       doc.text('CORTESIA:', 126, y, { width: 58, align: 'right' });
       doc.text(`${courtesy} %`, 186, y, { width: 26, align: 'right' });
       y += 9;
       doc.text('DESC. TOTAL:', 126, y, { width: 58, align: 'right' });
-      doc.text(this.formatMoney(discount), 186, y, { width: 26, align: 'right' });
+      doc.text(this.formatMoney(discount), 186, y, {
+        width: 26,
+        align: 'right',
+      });
       y += 9;
-      doc.font('Helvetica-Bold').text('TOTAL:', 126, y, { width: 58, align: 'right' });
+      doc
+        .font('Helvetica-Bold')
+        .text('TOTAL:', 126, y, { width: 58, align: 'right' });
       doc.text(this.formatMoney(total), 186, y, { width: 26, align: 'right' });
 
       doc.end();
@@ -415,7 +628,11 @@ export class ServicesService {
     const studyMap = new Map<number, Study>();
     studies.forEach((s) => studyMap.set(s.id, s));
 
-    const labels: Array<{ item: ServiceOrderItem; barcode: string; studyCode: string }> = [];
+    const labels: Array<{
+      item: ServiceOrderItem;
+      barcode: string;
+      studyCode: string;
+    }> = [];
     for (const item of service.items ?? []) {
       const study = studyMap.get(item.studyId);
       const studyCode = study?.code ?? String(item.studyId);
@@ -454,11 +671,14 @@ export class ServicesService {
 
       let index = 0;
 
-      const drawLabel = async (x: number, y: number, item: ServiceOrderItem, barcodeText: string, studyCode: string) => {
-        doc
-          .rect(x, y, labelWidth, labelHeight)
-          .strokeColor('#dddddd')
-          .stroke();
+      const drawLabel = async (
+        x: number,
+        y: number,
+        item: ServiceOrderItem,
+        barcodeText: string,
+        studyCode: string,
+      ) => {
+        doc.rect(x, y, labelWidth, labelHeight).strokeColor('#dddddd').stroke();
 
         const patientName = patient
           ? `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`.trim()
@@ -549,6 +769,120 @@ export class ServicesService {
     });
   }
 
+  private async buildServiceItems(
+    dtoItems: CreateServiceDto['items'],
+  ): Promise<{ items: ServiceOrderItem[]; subtotal: number }> {
+    if (!dtoItems || dtoItems.length === 0) {
+      throw new BadRequestException(
+        'Debe agregar al menos un analisis al servicio.',
+      );
+    }
+
+    const studyIds = dtoItems.map((item) => item.studyId);
+    const studies = await this.studyRepo.findByIds(studyIds);
+    if (studies.length !== studyIds.length) {
+      throw new NotFoundException(
+        'Uno o mas estudios no existen o estan inactivos.',
+      );
+    }
+
+    const studyMap = new Map<number, Study>();
+    studies.forEach((study) => studyMap.set(study.id, study));
+
+    const items: ServiceOrderItem[] = [];
+    let subtotal = 0;
+
+    for (const itemDto of dtoItems) {
+      const study = studyMap.get(itemDto.studyId)!;
+      const quantity = itemDto.quantity;
+      const itemDiscount = itemDto.discountPercent ?? 0;
+
+      if (!study.isActive || study.status !== StudyStatus.ACTIVE) {
+        throw new BadRequestException(
+          `El estudio "${study.name}" no esta disponible para nuevos servicios.`,
+        );
+      }
+
+      if (study.type === StudyType.PACKAGE) {
+        const componentIds = study.packageStudyIds ?? [];
+        if (componentIds.length === 0) {
+          throw new BadRequestException(
+            `El paquete "${study.name}" no tiene estudios asociados.`,
+          );
+        }
+
+        const componentStudies = await this.studyRepo.findByIds(componentIds);
+        if (componentStudies.length !== componentIds.length) {
+          throw new NotFoundException(
+            `Uno o mas estudios del paquete "${study.name}" no existen.`,
+          );
+        }
+
+        const invalidComponent = componentStudies.find(
+          (component) =>
+            !component.isActive ||
+            component.status !== StudyStatus.ACTIVE ||
+            component.type !== StudyType.STUDY,
+        );
+        if (invalidComponent) {
+          throw new BadRequestException(
+            `El paquete "${study.name}" contiene estudios no disponibles.`,
+          );
+        }
+
+        const orderedComponents = componentIds
+          .map((componentId) =>
+            componentStudies.find((component) => component.id === componentId),
+          )
+          .filter((component): component is Study => Boolean(component));
+
+        const packageUnitPrice = this.getPriceByType(study, itemDto.priceType);
+        const packageLineBase = packageUnitPrice * quantity;
+        const packageLineSubtotal = packageLineBase * (1 - itemDiscount / 100);
+        subtotal += packageLineSubtotal;
+
+        orderedComponents.forEach((component, index) => {
+          const isPricedLine = index === 0;
+          items.push(
+            this.itemRepo.create({
+              studyId: component.id,
+              studyNameSnapshot: component.name,
+              sourcePackageId: study.id,
+              sourcePackageNameSnapshot: study.name,
+              priceType: itemDto.priceType,
+              unitPrice: isPricedLine ? packageUnitPrice : 0,
+              quantity,
+              discountPercent: isPricedLine ? itemDiscount : 0,
+              subtotalAmount: isPricedLine ? packageLineSubtotal : 0,
+            }),
+          );
+        });
+
+        continue;
+      }
+
+      const unitPrice = this.getPriceByType(study, itemDto.priceType);
+      const lineBase = unitPrice * quantity;
+      const lineSubtotal = lineBase * (1 - itemDiscount / 100);
+
+      subtotal += lineSubtotal;
+
+      items.push(
+        this.itemRepo.create({
+          studyId: study.id,
+          studyNameSnapshot: study.name,
+          priceType: itemDto.priceType,
+          unitPrice,
+          quantity,
+          discountPercent: itemDiscount,
+          subtotalAmount: lineSubtotal,
+        }),
+      );
+    }
+
+    return { items, subtotal };
+  }
+
   // --------- CRUD principal ---------
 
   async create(dto: CreateServiceDto) {
@@ -568,6 +902,32 @@ export class ServicesService {
         throw new NotFoundException('El médico no existe o está inactivo.');
       }
     }
+
+    const preparedItems = await this.buildServiceItems(dto.items);
+    const preparedCourtesyPercent = dto.courtesyPercent ?? 0;
+    const preparedDiscountAmount =
+      preparedItems.subtotal * (preparedCourtesyPercent / 100);
+    const preparedTotalAmount = preparedItems.subtotal - preparedDiscountAmount;
+
+    const nextServiceEntity = this.serviceRepo.create({
+      folio: dto.folio,
+      patientId: dto.patientId,
+      doctorId: dto.doctorId,
+      branchName: dto.branchName,
+      sampleAt: dto.sampleAt ? new Date(dto.sampleAt!) : undefined,
+      deliveryAt: dto.deliveryAt ? new Date(dto.deliveryAt!) : undefined,
+      status: dto.status ?? ServiceStatus.PENDING,
+      completedAt:
+        dto.status === ServiceStatus.COMPLETED ? new Date() : undefined,
+      courtesyPercent: preparedCourtesyPercent,
+      subtotalAmount: preparedItems.subtotal,
+      discountAmount: preparedDiscountAmount,
+      totalAmount: preparedTotalAmount,
+      notes: dto.notes,
+      items: preparedItems.items,
+    });
+
+    return this.serviceRepo.save(nextServiceEntity);
 
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException(
@@ -593,10 +953,68 @@ export class ServicesService {
 
     for (const itemDto of dto.items) {
       const study = studyMap.get(itemDto.studyId)!;
-      const unitPrice = this.getPriceByType(study, itemDto.priceType);
       const quantity = itemDto.quantity;
       const itemDiscount = itemDto.discountPercent ?? 0;
 
+      if (study.type === StudyType.PACKAGE) {
+        const componentIds = study.packageStudyIds ?? [];
+        if (componentIds.length === 0) {
+          throw new BadRequestException(
+            `El paquete "${study.name}" no tiene estudios asociados.`,
+          );
+        }
+
+        const componentStudies = await this.studyRepo.findByIds(componentIds);
+        if (componentStudies.length !== componentIds.length) {
+          throw new NotFoundException(
+            `Uno o mas estudios del paquete "${study.name}" no existen.`,
+          );
+        }
+
+        const invalidComponent = componentStudies.find(
+          (component) =>
+            !component.isActive ||
+            component.status !== StudyStatus.ACTIVE ||
+            component.type !== 'study',
+        );
+        if (invalidComponent) {
+          throw new BadRequestException(
+            `El paquete "${study.name}" contiene estudios no disponibles.`,
+          );
+        }
+
+        const orderedComponents = componentIds
+          .map((componentId) =>
+            componentStudies.find((component) => component.id === componentId),
+          )
+          .filter((component): component is Study => Boolean(component));
+
+        const packageUnitPrice = this.getPriceByType(study, itemDto.priceType);
+        const packageLineBase = packageUnitPrice * quantity;
+        const packageLineSubtotal = packageLineBase * (1 - itemDiscount / 100);
+        subtotal += packageLineSubtotal;
+
+        orderedComponents.forEach((component, index) => {
+          const isPricedLine = index === 0;
+          const item = this.itemRepo.create({
+            studyId: component.id,
+            studyNameSnapshot: component.name,
+            sourcePackageId: study.id,
+            sourcePackageNameSnapshot: study.name,
+            priceType: itemDto.priceType,
+            unitPrice: isPricedLine ? packageUnitPrice : 0,
+            quantity,
+            discountPercent: isPricedLine ? itemDiscount : 0,
+            subtotalAmount: isPricedLine ? packageLineSubtotal : 0,
+          });
+
+          items.push(item);
+        });
+
+        continue;
+      }
+
+      const unitPrice = this.getPriceByType(study, itemDto.priceType);
       const lineBase = unitPrice * quantity;
       const lineSubtotal = lineBase * (1 - itemDiscount / 100);
 
@@ -624,8 +1042,8 @@ export class ServicesService {
       patientId: dto.patientId,
       doctorId: dto.doctorId,
       branchName: dto.branchName,
-      sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : undefined,
-      deliveryAt: dto.deliveryAt ? new Date(dto.deliveryAt) : undefined,
+      sampleAt: dto.sampleAt ? new Date(dto.sampleAt!) : undefined,
+      deliveryAt: dto.deliveryAt ? new Date(dto.deliveryAt!) : undefined,
       status: dto.status ?? ServiceStatus.PENDING,
       courtesyPercent,
       subtotalAmount: subtotal,
@@ -665,12 +1083,13 @@ export class ServicesService {
   async search(params: {
     search?: string;
     status?: ServiceStatus;
+    branchName?: string;
     fromDate?: string;
     toDate?: string;
     page?: number;
     limit?: number;
   }) {
-    const { search, status, fromDate, toDate } = params;
+    const { search, status, branchName, fromDate, toDate } = params;
     const page = Number(params.page) || 1;
     const limit = Number(params.limit) || 10;
 
@@ -679,23 +1098,43 @@ export class ServicesService {
       .leftJoinAndSelect('s.patient', 'p')
       .leftJoinAndSelect('s.doctor', 'd')
       .leftJoinAndSelect('s.items', 'i')
-      .where('s.isActive = :active', { active: true });
+      .where('s.isActive = :active', { active: true })
+      .distinct(true);
 
     if (status) {
       qb.andWhere('s.status = :status', { status });
     }
 
-    if (fromDate && toDate) {
-      qb.andWhere('s.createdAt BETWEEN :from AND :to', {
+    if (branchName) {
+      qb.andWhere('s.branchName = :branchName', { branchName });
+    }
+
+    if (fromDate) {
+      qb.andWhere('s.createdAt >= :from', {
         from: new Date(fromDate),
-        to: new Date(toDate),
       });
     }
 
-    if (search) {
+    if (toDate) {
+      const endDate = new Date(toDate);
+      endDate.setHours(23, 59, 59, 999);
+      qb.andWhere('s.createdAt <= :to', {
+        to: endDate,
+      });
+    }
+
+    const normalizedSearch = this.normalizeSearchText(search);
+
+    if (normalizedSearch) {
       qb.andWhere(
-        '(s.folio LIKE :q OR p.firstName LIKE :q OR p.lastName LIKE :q)',
-        { q: `%${search}%` },
+        `(
+          ${this.sqlNormalizedExpression('s.folio')} LIKE :normalizedSearch
+          OR ${this.sqlNormalizedExpression(
+            "concat_ws(' ', p.firstName, p.lastName, p.middleName)",
+          )} LIKE :normalizedSearch
+          OR ${this.sqlNormalizedExpression('i.studyNameSnapshot')} LIKE :normalizedSearch
+        )`,
+        { normalizedSearch: `%${normalizedSearch}%` },
       );
     }
 
@@ -726,7 +1165,9 @@ export class ServicesService {
         where: { id: dto.patientId, isActive: true },
       });
       if (!patient) {
-        throw new NotFoundException('El nuevo paciente no existe o está inactivo.');
+        throw new NotFoundException(
+          'El nuevo paciente no existe o está inactivo.',
+        );
       }
     }
 
@@ -735,17 +1176,64 @@ export class ServicesService {
         where: { id: dto.doctorId, isActive: true },
       });
       if (!doctor) {
-        throw new NotFoundException('El nuevo médico no existe o está inactivo.');
+        throw new NotFoundException(
+          'El nuevo médico no existe o está inactivo.',
+        );
       }
     }
+
+    let subtotal = this.toNumber(service.subtotalAmount);
+    let nextItems = service.items;
+
+    if (dto.items) {
+      const preparedItems = await this.buildServiceItems(dto.items);
+      subtotal = preparedItems.subtotal;
+      nextItems = preparedItems.items;
+      await this.itemRepo.delete({ serviceOrderId: id });
+    }
+
+    const nextCourtesyPercent =
+      dto.courtesyPercent !== undefined
+        ? dto.courtesyPercent
+        : this.toNumber(service.courtesyPercent);
+    const nextDiscountAmount = subtotal * (nextCourtesyPercent / 100);
+    const nextTotalAmount = subtotal - nextDiscountAmount;
+
+    const nextService = this.serviceRepo.merge(service, {
+      folio: dto.folio ?? service.folio,
+      patientId: dto.patientId ?? service.patientId,
+      doctorId: dto.doctorId ?? service.doctorId,
+      branchName: dto.branchName ?? service.branchName,
+      sampleAt: dto.sampleAt ? new Date(dto.sampleAt!) : service.sampleAt,
+      deliveryAt: dto.deliveryAt
+        ? new Date(dto.deliveryAt!)
+        : service.deliveryAt,
+      status: dto.status ?? service.status,
+      completedAt:
+        dto.status === ServiceStatus.COMPLETED
+          ? service.completedAt ?? new Date()
+          : dto.status
+            ? undefined
+            : service.completedAt,
+      courtesyPercent: nextCourtesyPercent,
+      subtotalAmount: subtotal,
+      discountAmount: nextDiscountAmount,
+      totalAmount: nextTotalAmount,
+      notes: dto.notes ?? service.notes,
+      items: nextItems,
+    });
+
+    return this.serviceRepo.save(nextService);
 
     const merged = this.serviceRepo.merge(service, {
       folio: dto.folio ?? service.folio,
       patientId: dto.patientId ?? service.patientId,
       doctorId: dto.doctorId ?? service.doctorId,
       branchName: dto.branchName ?? service.branchName,
-      sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : service.sampleAt,
-      deliveryAt: dto.deliveryAt ? new Date(dto.deliveryAt) : service.deliveryAt,
+      sampleAt: dto.sampleAt ? new Date(dto.sampleAt!) : service.sampleAt,
+      deliveryAt: dto.deliveryAt
+        ? new Date(dto.deliveryAt!)
+        : service.deliveryAt,
       status: dto.status ?? service.status,
       courtesyPercent: dto.courtesyPercent ?? service.courtesyPercent,
       notes: dto.notes ?? service.notes,
@@ -767,6 +1255,8 @@ export class ServicesService {
   async updateStatus(id: number, dto: UpdateServiceStatusDto) {
     const service = await this.findOne(id);
     service.status = dto.status;
+    service.completedAt =
+      dto.status === ServiceStatus.COMPLETED ? service.completedAt ?? new Date() : undefined;
     return this.serviceRepo.save(service);
   }
 

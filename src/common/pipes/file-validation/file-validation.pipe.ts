@@ -8,9 +8,7 @@ export interface FileValidationOptions {
 
 @Injectable()
 export class FileValidationPipe implements PipeTransform {
-  constructor(
-    private readonly opts: FileValidationOptions = {},
-  ) { }
+  constructor(private readonly opts: FileValidationOptions = {}) {}
 
   transform(file: Express.Multer.File) {
     const {

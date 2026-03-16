@@ -26,7 +26,11 @@ export class OperativoQueriesExampleService {
     return rows;
   }
 
-  async updatePatientPhone(user: RoleCarrier, patientId: string, telefono: string): Promise<void> {
+  async updatePatientPhone(
+    user: RoleCarrier,
+    patientId: string,
+    telefono: string,
+  ): Promise<void> {
     await this.db.queryInOperativeSchema(
       user,
       `

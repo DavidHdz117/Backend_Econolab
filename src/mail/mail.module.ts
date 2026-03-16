@@ -5,7 +5,7 @@ import { MAILER_TRANSPORT } from './constants';
 import { MailService } from './mail.service';
 
 @Module({
-  imports: [ConfigModule], 
+  imports: [ConfigModule],
   providers: [
     {
       provide: MAILER_TRANSPORT,
@@ -16,4 +16,4 @@ import { MailService } from './mail.service';
   ],
   exports: [MailService],
 })
-export class MailModule { }
+export class MailModule {}
