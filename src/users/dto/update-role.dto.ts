@@ -1,7 +1,7 @@
-import { IsEnum } from 'class-validator';
+import { IsIn } from 'class-validator';
 import { Role } from 'src/common/enums/roles.enum';
 
 export class UpdateRoleDto {
-  @IsEnum(Role, { message: 'rol inválido' })
+  @IsIn([Role.Admin, Role.Recepcionista], { message: 'rol invalido' })
   rol: Role;
 }

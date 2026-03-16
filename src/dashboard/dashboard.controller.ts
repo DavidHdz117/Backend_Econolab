@@ -11,7 +11,9 @@ export class DashboardController {
   getOverview(
     @Query('range') range?: string,
     @Query('role') role?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.dashboardService.getOverview(range, role);
+    return this.dashboardService.getOverview(range, role, startDate, endDate);
   }
 }

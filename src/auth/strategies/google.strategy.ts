@@ -5,10 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from 'src/users/users.service';
 
 @Injectable()
-export class GoogleStrategy extends PassportStrategy(
-  Strategy as any,
-  'google',
-) {
+export class GoogleStrategy extends PassportStrategy(Strategy as any, 'google') {
   constructor(
     private readonly cfg: ConfigService,
     private readonly usersService: UsersService,
@@ -24,34 +21,29 @@ export class GoogleStrategy extends PassportStrategy(
   async validate(accessToken: string, refreshToken: string, profile: Profile) {
     const email = profile.emails?.[0]?.value;
     const nombre = profile.displayName;
+    const googleAvatarUrl = profile.photos?.[0]?.value ?? null;
 
     if (!email) {
-      throw new UnauthorizedException(
-        'No se pudo obtener el email desde Google',
-      );
+      throw new UnauthorizedException('No se pudo obtener el email desde Google');
     }
 
-    // 1) Buscar usuario por email
     let user = await this.usersService.findByEmail(email);
 
-    // 2) Si NO existe → crearlo como ADMIN (SOLO pruebas)
     if (!user) {
-      user = await this.usersService.registerFromGoogleAsAdmin({
+      user = await this.usersService.registerFromGoogle({
         nombre,
         email,
         googleId: profile.id,
+        googleAvatarUrl,
       });
     }
 
-    // 3) Si existe pero no está confirmado → confirmarlo
     if (!user.confirmed) {
-      user = await this.usersService.confirmFromGoogle(user);
+      user = await this.usersService.confirmFromGoogle(user, googleAvatarUrl);
+    } else {
+      user = await this.usersService.syncGoogleAvatar(user, googleAvatarUrl);
     }
 
-    // 4) ⚠️ SOLO pruebas: si sigue unassigned, darle admin
-    user = await this.usersService.promoteUnassignedToAdminForTesting(user);
-
-    // Passport pondrá este user en req.user
     return user;
   }
 }

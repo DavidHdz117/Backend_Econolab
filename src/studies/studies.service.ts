@@ -278,7 +278,7 @@ export class StudiesService {
       );
     }
 
-    if (dto.parentId) {
+    if (dto.parentId !== undefined && dto.parentId !== null) {
       const parent = await this.detailRepo.findOne({
         where: { id: dto.parentId, studyId, isActive: true },
       });
@@ -315,7 +315,7 @@ export class StudiesService {
       );
     }
 
-    if (dto.parentId) {
+    if (dto.parentId !== undefined && dto.parentId !== null) {
       const parent = await this.detailRepo.findOne({
         where: { id: dto.parentId, studyId: detail.studyId, isActive: true },
       });

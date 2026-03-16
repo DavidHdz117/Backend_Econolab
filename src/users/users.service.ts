@@ -1,11 +1,12 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User } from './entities/user.entity';
 import { checkPassword, hashPassword } from 'src/common/utils/crypto.util';
@@ -40,46 +41,43 @@ export class UsersService {
     await this.userRepository.save(user);
   }
 
-  /* ───────── Registro ───────── */
   async register(dto: CreateUserDto) {
     const exists = await this.findByEmail(dto.email);
-    if (exists) throw new ConflictException('El correo ya está en uso');
+    if (exists) throw new ConflictException('El correo ya esta en uso');
 
     return this.create(dto);
   }
 
-  /* ───────── Confirmar cuenta ───────── */
   async confirmAccount(token: string) {
     const user = await this.findByToken(token);
-    if (!user) throw new NotFoundException('Token no válido');
+    if (!user) throw new NotFoundException('Token no valido');
 
     user.confirmed = true;
     user.token = null;
     await this.userRepository.save(user);
 
-    return { message: 'Cuenta confirmada correctamente' };
+    return {
+      message:
+        'Cuenta confirmada correctamente. Espera a que un administrador te asigne un rol.',
+    };
   }
 
-  /* ───────── Recuperar contraseña ───────── */
   async forgotPassword(email: string) {
     const user = await this.findByEmail(email);
 
-    // Respuesta genérica SIEMPRE
     const genericResponse = {
-      message: 'Si el correo existe, se enviará un enlace de recuperación',
+      message: 'Si el correo existe, se enviara un enlace de recuperacion',
     };
 
-    // Si no existe, no decimos nada; opcional: delay para evitar timing attacks
     if (!user) {
-      await new Promise((resolve) => setTimeout(resolve, 300)); // 300ms
+      await new Promise((resolve) => setTimeout(resolve, 300));
       return genericResponse;
     }
 
     const now = new Date();
-    const WINDOW_HOURS = 1; // ventana de 1 hora
-    const MAX_REQUESTS = 3; // máximo 3 correos por hora
+    const WINDOW_HOURS = 1;
+    const MAX_REQUESTS = 3;
 
-    // Reiniciar ventana si ya pasó la hora
     if (
       !user.resetRequestWindowStart ||
       now.getTime() - user.resetRequestWindowStart.getTime() >
@@ -89,17 +87,15 @@ export class UsersService {
       user.resetRequestCount = 0;
     }
 
-    // Si ya se pasó del límite, no mandamos más correos
     if (user.resetRequestCount >= MAX_REQUESTS) {
       return {
         message:
-          'Ya se envió recientemente un correo de recuperación. Revisa tu bandeja o inténtalo más tarde.',
+          'Ya se envio recientemente un correo de recuperacion. Revisa tu bandeja o intentalo mas tarde.',
       };
     }
 
-    // Generar token "serio" y con expiración
-    user.token = generateRandomToken(6); // mejor que 6 dígitos
-    user.resetTokenExpiresAt = new Date(now.getTime() + 60 * 60 * 1000); // 1 hora
+    user.token = generateRandomToken(6);
+    user.resetTokenExpiresAt = new Date(now.getTime() + 60 * 60 * 1000);
     user.resetRequestCount++;
     await this.userRepository.save(user);
 
@@ -112,60 +108,80 @@ export class UsersService {
     return genericResponse;
   }
 
-  /* ───────── Validar token de reset ───────── */
   async validateResetToken(token: string) {
     const user = await this.findByToken(token);
     const now = new Date();
 
     if (!user || !user.resetTokenExpiresAt || user.resetTokenExpiresAt < now) {
-      throw new NotFoundException('Token no válido o expirado');
+      throw new NotFoundException('Token no valido o expirado');
     }
 
-    return { message: 'Token válido...' };
+    return { message: 'Token valido...' };
   }
 
-  /* ───────── Reset con token ───────── */
   async resetPassword(token: string, newPass: string) {
     const user = await this.findByToken(token);
     const now = new Date();
 
     if (!user || !user.resetTokenExpiresAt || user.resetTokenExpiresAt < now) {
-      throw new NotFoundException('Token no válido o expirado');
+      throw new NotFoundException('Token no valido o expirado');
     }
 
     user.password = await hashPassword(newPass);
     user.token = null;
     user.resetTokenExpiresAt = null;
-    // Podrías resetear también contador de solicitudes si quieres:
     user.resetRequestCount = 0;
     user.resetRequestWindowStart = null;
 
     await this.userRepository.save(user);
 
-    return { message: 'La contraseña se modificó correctamente' };
+    return { message: 'La contrasena se modifico correctamente' };
   }
 
-  /* ───────── Cambiar contraseña autenticado ───────── */
   async updatePassword(userId: string, currentPass: string, newPass: string) {
     const user = await this.findOne(userId);
     const ok = await checkPassword(currentPass, user!.password);
-    if (!ok) throw new UnauthorizedException('Contraseña actual incorrecta');
+    if (!ok) throw new UnauthorizedException('Contrasena actual incorrecta');
 
     user!.password = await hashPassword(newPass);
     await this.userRepository.save(user!);
 
-    return { message: 'Contraseña actualizada' };
+    return { message: 'Contrasena actualizada' };
   }
 
-  /* ───────── Verificar contraseña autenticado ───────── */
+  async getProfile(userId: string) {
+    const user = await this.findOne(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    return this.toProfileView(user);
+  }
+
+  async updateProfileImage(userId: string, file: Express.Multer.File) {
+    const user = await this.findOne(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    user.profileImageData = file.buffer.toString('base64');
+    user.profileImageMimeType = file.mimetype;
+
+    await this.userRepository.save(user);
+
+    return {
+      message: 'Foto de perfil actualizada',
+      user: this.toProfileView(user),
+    };
+  }
+
   async checkPassword(userId: string, pass: string) {
     const user = await this.findOne(userId);
     const ok = await checkPassword(pass, user!.password);
-    if (!ok) throw new UnauthorizedException('Contraseña incorrecta');
-    return { message: 'Contraseña correcta' };
+    if (!ok) throw new UnauthorizedException('Contrasena incorrecta');
+    return { message: 'Contrasena correcta' };
   }
 
-  /* ───────── Funciones de administrador ───────── */
   async findConfirmed() {
     return this.userRepository.find({ where: { confirmed: true } });
   }
@@ -173,35 +189,48 @@ export class UsersService {
   async setRole(id: string, rol: Role) {
     const user = await this.findOne(id);
     if (!user) throw new NotFoundException('Usuario no encontrado');
-    if (!user.confirmed)
+    if (!user.confirmed) {
       throw new UnauthorizedException('El usuario no ha confirmado su cuenta');
+    }
+    if (user.rol === Role.Admin) {
+      throw new ForbiddenException(
+        'No se puede cambiar el rol de un usuario admin desde este panel',
+      );
+    }
+
     user.rol = rol;
     await this.userRepository.save(user);
-    return { message: 'Rol actualizado', usuario: { id: user.id, rol } };
+
+    return {
+      message: 'Rol actualizado',
+      usuario: this.toAdminUserView(user),
+    };
   }
 
   async findConfirmedUnassigned() {
     const users = await this.userRepository.find({
       where: {
         confirmed: true,
-        rol: Role.Unassigned, // enum o null, según tu columna
+        rol: Role.Unassigned,
       },
-      order: { createdAt: 'ASC' }, // opcional: ordena por fecha de alta
+      order: { createdAt: 'ASC' },
     });
-    if (users !== null) return users;
-    return { message: 'No hay usuarios sin rol' };
+
+    return users.map((user) => this.toAdminUserView(user));
   }
 
   async findConfirmedWithRoles() {
     const users = await this.userRepository.find({
-      where: [{ confirmed: true, rol: Role.Recepcionista || Role.Admin }],
+      where: {
+        confirmed: true,
+        rol: In([Role.Admin, Role.Recepcionista]),
+      },
       order: { createdAt: 'ASC' },
     });
-    if (users !== null) return users;
-    return { message: 'No hay usuarios con rol' };
+
+    return users.map((user) => this.toAdminUserView(user));
   }
 
-  /* ───────── Eliminar usuario (solo admin) ───────── */
   async deleteUser(id: string) {
     const user = await this.findOne(id);
     if (!user) throw new NotFoundException('Usuario no encontrado');
@@ -215,7 +244,6 @@ export class UsersService {
     return { message: 'Usuario eliminado' };
   }
 
-  /* ───────── CRUD helpers ───────── */
   async findOne(id: string) {
     return this.userRepository.findOne({ where: { id } });
   }
@@ -231,7 +259,7 @@ export class UsersService {
   async create(dto: CreateUserDto) {
     const user = this.userRepository.create({
       ...dto,
-      rol: Role.Admin,
+      rol: Role.Unassigned,
       password: await hashPassword(dto.password),
       token: generateRandomToken(6),
       confirmed: false,
@@ -243,15 +271,16 @@ export class UsersService {
   async getRoleOnly(id: string): Promise<Role | null> {
     const record = await this.userRepository.findOne({
       where: { id },
-      select: ['rol'], // ← solo la columna rol (rápido)
+      select: ['rol'],
     });
     return record?.rol ?? null;
   }
 
-  async registerFromGoogleAsAdmin(data: {
+  async registerFromGoogle(data: {
     nombre: string;
     email: string;
     googleId: string;
+    googleAvatarUrl?: string | null;
   }) {
     const randomPass = await hashPassword(`google-${data.email}-${Date.now()}`);
 
@@ -260,28 +289,68 @@ export class UsersService {
       email: data.email,
       password: randomPass,
       confirmed: true,
-      rol: Role.Admin, // 👈 ADMIN directo (SOLO pruebas)
-      // si tu entidad tiene estos campos, puedes guardarlos:
-      // googleId: data.googleId,
-      // provider: 'google',
+      rol: Role.Unassigned,
+      googleAvatarUrl: data.googleAvatarUrl ?? null,
     });
 
     return this.userRepository.save(user);
   }
 
-  /** Marcar usuario como confirmado (si viene de Google) */
-  async confirmFromGoogle(user: User) {
+  async confirmFromGoogle(user: User, googleAvatarUrl?: string | null) {
     user.confirmed = true;
-    user.token = null; // si usas token de confirmación
+    user.token = null;
+
+    if (googleAvatarUrl) {
+      user.googleAvatarUrl = googleAvatarUrl;
+    }
+
     return this.userRepository.save(user);
   }
 
-  /** ⚠️ SOLO PRUEBAS: promover a admin si sigue unassigned */
-  async promoteUnassignedToAdminForTesting(user: User) {
-    if (user.rol === Role.Unassigned) {
-      user.rol = Role.Admin;
-      return this.userRepository.save(user);
+  async syncGoogleAvatar(user: User, googleAvatarUrl?: string | null) {
+    if (!googleAvatarUrl) {
+      return user;
     }
-    return user;
+
+    if (user.googleAvatarUrl === googleAvatarUrl) {
+      return user;
+    }
+
+    user.googleAvatarUrl = googleAvatarUrl;
+    return this.userRepository.save(user);
+  }
+
+  private getProfileImageUrl(user: User) {
+    if (user.profileImageData && user.profileImageMimeType) {
+      return `data:${user.profileImageMimeType};base64,${user.profileImageData}`;
+    }
+
+    return user.googleAvatarUrl ?? null;
+  }
+
+  private toProfileView(user: User) {
+    return {
+      id: user.id,
+      nombre: user.nombre,
+      email: user.email,
+      rol: user.rol,
+      confirmed: user.confirmed,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      profileImageUrl: this.getProfileImageUrl(user),
+      authProvider: user.googleAvatarUrl ? 'google' : 'local',
+    };
+  }
+
+  private toAdminUserView(user: User) {
+    return {
+      id: user.id,
+      nombre: user.nombre,
+      email: user.email,
+      rol: user.rol,
+      confirmed: user.confirmed,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 }

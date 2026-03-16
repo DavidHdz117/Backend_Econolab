@@ -34,8 +34,17 @@ export class User {
   @Column({ type: 'boolean', default: false })
   confirmed: boolean;
 
-  @Column({ type: 'enum', enum: Role, default: Role.Admin })
+  @Column({ type: 'enum', enum: Role, default: Role.Unassigned })
   rol: Role;
+
+  @Column({ type: 'text', nullable: true })
+  profileImageData: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  profileImageMimeType: string | null;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  googleAvatarUrl: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   resetTokenExpiresAt: Date | null;

@@ -8,7 +8,10 @@ import {
   UseGuards,
   Req,
   Delete,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { MailService } from 'src/mail/mail.service';
@@ -23,6 +26,8 @@ import { Roles } from 'src/common/decorators/roles.decorator';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { IdValidationPipe } from 'src/common/pipes/id-validation/id-validation.pipe';
 import { TokenValidationPipe } from 'src/common/pipes/token-validation/token-validation.pipe';
+import { FileValidationPipe } from 'src/common/pipes/file-validation/file-validation.pipe';
+import { memoryStorage } from 'multer';
 
 @Controller('users')
 export class UsersController {
@@ -87,6 +92,32 @@ export class UsersController {
   @Post('check-password')
   checkPassword(@Req() req, @Body('password') password: string) {
     return this.usersService.checkPassword(req.user.id, password);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  getProfile(@Req() req) {
+    return this.usersService.getProfile(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile-image')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      storage: memoryStorage(),
+    }),
+  )
+  updateProfileImage(
+    @Req() req,
+    @UploadedFile(
+      new FileValidationPipe({
+        required: true,
+        maxSizeBytes: 2 * 1024 * 1024,
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    return this.usersService.updateProfileImage(req.user.id, file);
   }
 }
 

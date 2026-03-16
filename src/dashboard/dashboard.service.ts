@@ -10,8 +10,9 @@ import {
 } from '../services/entities/service-order.entity';
 import { User } from '../users/entities/user.entity';
 
-type DashboardRange = 'today' | '7d' | '30d' | 'year';
+type DashboardRange = 'today' | '7d' | '30d' | '90d' | 'year' | 'custom';
 type DashboardRoleFilter = 'all' | 'admin' | 'recepcionista';
+type TrendGrouping = 'day' | 'month';
 
 @Injectable()
 export class DashboardService {
@@ -64,29 +65,71 @@ export class DashboardService {
     return `${year}-${month}`;
   }
 
-  private getRangeConfig(rangeInput?: string) {
-    const allowed: DashboardRange[] = ['today', '7d', '30d', 'year'];
-    const range = allowed.includes(rangeInput as DashboardRange)
+  private parseDateInput(value?: string): string | null {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+
+    const parsed = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return null;
+
+    return value;
+  }
+
+  private getDateDistanceInDays(startDate: string, endDate: string) {
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+    const diff = end.getTime() - start.getTime();
+    return Math.max(0, Math.floor(diff / (24 * 60 * 60 * 1000))) + 1;
+  }
+
+  private getRangeConfig(
+    rangeInput?: string,
+    startDateInput?: string,
+    endDateInput?: string,
+  ) {
+    const allowed: DashboardRange[] = ['today', '7d', '30d', '90d', 'year', 'custom'];
+    const requestedRange = allowed.includes(rangeInput as DashboardRange)
       ? (rangeInput as DashboardRange)
       : 'today';
-    const end = new Date();
-    const start = new Date(end);
+    const today = new Date();
+    const end = new Date(today);
+    const start = new Date(today);
 
-    if (range === '7d') {
+    if (requestedRange === '7d') {
       start.setDate(start.getDate() - 6);
-    } else if (range === '30d') {
+    } else if (requestedRange === '30d') {
       start.setDate(start.getDate() - 29);
-    } else if (range === 'year') {
+    } else if (requestedRange === '90d') {
+      start.setDate(start.getDate() - 89);
+    } else if (requestedRange === 'year') {
       start.setDate(start.getDate() - 364);
     }
 
+    const customStart = this.parseDateInput(startDateInput);
+    const customEnd = this.parseDateInput(endDateInput);
+
+    if (requestedRange === 'custom' && customStart && customEnd) {
+      const normalizedStart = customStart <= customEnd ? customStart : customEnd;
+      const normalizedEnd = customStart <= customEnd ? customEnd : customStart;
+      const spanDays = this.getDateDistanceInDays(normalizedStart, normalizedEnd);
+
+      return {
+        range: 'custom' as const,
+        startDate: normalizedStart,
+        endDate: normalizedEnd,
+        label: 'Rango personalizado',
+        trendGrouping: spanDays > 120 ? ('month' as const) : ('day' as const),
+      };
+    }
+
+    const range = requestedRange === 'custom' ? 'today' : requestedRange;
     const startDate = range === 'today' ? this.getLabDateInput(end) : this.getLabDateInput(start);
     const endDate = this.getLabDateInput(end);
 
-    const labels: Record<DashboardRange, string> = {
+    const labels: Record<Exclude<DashboardRange, 'custom'>, string> = {
       today: 'Hoy',
       '7d': 'Ultimos 7 dias',
       '30d': 'Ultimos 30 dias',
+      '90d': 'Ultimos 3 meses',
       year: 'Ultimo año',
     };
 
@@ -95,6 +138,7 @@ export class DashboardService {
       startDate,
       endDate,
       label: labels[range],
+      trendGrouping: range === 'year' ? ('month' as const) : ('day' as const),
     };
   }
 
@@ -167,7 +211,7 @@ export class DashboardService {
     return [...branches.values()].sort((a, b) => b.revenueTotal - a.revenueTotal);
   }
 
-  private buildTrend(services: ServiceOrder[], range: DashboardRange) {
+  private buildTrend(services: ServiceOrder[], grouping: TrendGrouping) {
     const buckets = new Map<
       string,
       { key: string; revenueTotal: number; servicesCount: number }
@@ -175,7 +219,10 @@ export class DashboardService {
 
     for (const service of services) {
       const completedAt = service.completedAt ?? service.updatedAt ?? service.createdAt ?? new Date();
-      const key = range === 'year' ? this.getMonthKey(completedAt) : this.getLabDateInput(completedAt);
+      const key =
+        grouping === 'month'
+          ? this.getMonthKey(completedAt)
+          : this.getLabDateInput(completedAt);
       const current = buckets.get(key) ?? {
         key,
         revenueTotal: 0,
@@ -189,8 +236,13 @@ export class DashboardService {
     return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
   }
 
-  async getOverview(rangeInput?: string, roleInput?: string) {
-    const rangeConfig = this.getRangeConfig(rangeInput);
+  async getOverview(
+    rangeInput?: string,
+    roleInput?: string,
+    startDateInput?: string,
+    endDateInput?: string,
+  ) {
+    const rangeConfig = this.getRangeConfig(rangeInput, startDateInput, endDateInput);
     const roleFilter = this.getRoleFilter(roleInput);
     const createdLocalDateExpr = this.getLocalDateExpression('s.createdAt');
     const completedLocalDateExpr = this.getLocalDateExpression(
@@ -286,7 +338,10 @@ export class DashboardService {
         : 0;
     const studyRanking = this.buildStudyRanking(createdServicesInRange);
     const branchSummary = this.buildBranchSummary(completedServicesInRange);
-    const trend = this.buildTrend(completedServicesInRange, rangeConfig.range);
+    const trend = this.buildTrend(
+      completedServicesInRange,
+      rangeConfig.trendGrouping,
+    );
 
     const successfulLogins = rangeLoginLogs.filter((log) => log.success);
     const failedLogins = rangeLoginLogs.filter((log) => !log.success);
