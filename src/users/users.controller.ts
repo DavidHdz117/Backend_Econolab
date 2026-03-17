@@ -19,6 +19,7 @@ import { ValidateTokenDto } from './dto/validate-token.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset.password.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { Role } from 'src/common/enums/roles.enum';
@@ -98,6 +99,12 @@ export class UsersController {
   @Get('me')
   getProfile(@Req() req) {
     return this.usersService.getProfile(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  updateProfile(@Req() req, @Body() dto: UpdateProfileDto) {
+    return this.usersService.updateProfile(req.user.id, req.user.jti, dto);
   }
 
   @UseGuards(JwtAuthGuard)

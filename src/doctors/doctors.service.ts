@@ -36,7 +36,7 @@ export class DoctorsService {
   }
 
   private buildNormalizedSql(field: string) {
-    return `regexp_replace(lower(coalesce(${field}, '')), '[^a-z0-9]+', '', 'g')`;
+    return `regexp_replace(translate(lower(coalesce(${field}, '')), 'áéíóúäëïöüàèìòùñ', 'aeiouaeiouaeioun'), '[^a-z0-9]+', '', 'g')`;
   }
 
   private async findByIdOrFail(id: number) {

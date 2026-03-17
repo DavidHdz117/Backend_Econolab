@@ -10,9 +10,13 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
+import { Roles } from '../common/decorators/roles.decorator';
+import { Role } from '../common/enums/roles.enum';
+import { RolesGuard } from '../common/guards/roles.guard';
 import { HistoryService } from './history.service';
 
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles(Role.Admin)
 @Controller('history')
 export class HistoryController {
   constructor(private readonly historyService: HistoryService) {}

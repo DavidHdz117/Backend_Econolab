@@ -13,6 +13,8 @@ import { checkPassword, hashPassword } from 'src/common/utils/crypto.util';
 import { generateRandomToken } from 'src/common/utils/token.util';
 import { Role } from 'src/common/enums/roles.enum';
 import { MailService } from 'src/mail/mail.service';
+import { generateJWT, type AppJwtPayload } from 'src/common/utils/jwt.util';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class UsersService {
@@ -171,6 +173,55 @@ export class UsersService {
 
     return {
       message: 'Foto de perfil actualizada',
+      user: this.toProfileView(user),
+    };
+  }
+
+  async updateProfile(userId: string, jti: string, dto: UpdateProfileDto) {
+    const user = await this.findOne(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const nextNombre = dto.nombre?.trim();
+    const nextEmail = dto.email?.trim().toLowerCase();
+
+    if (!nextNombre && !nextEmail) {
+      throw new ConflictException('No hay cambios para guardar');
+    }
+
+    if (typeof nextNombre === 'string' && nextNombre) {
+      user.nombre = nextNombre;
+    }
+
+    if (typeof nextEmail === 'string' && nextEmail && nextEmail !== user.email) {
+      if (user.googleAvatarUrl) {
+        throw new ForbiddenException(
+          'Las cuentas con Google no pueden cambiar el correo desde este perfil',
+        );
+      }
+
+      const existingUser = await this.findByEmail(nextEmail);
+      if (existingUser && existingUser.id !== user.id) {
+        throw new ConflictException('El correo ya esta en uso');
+      }
+
+      user.email = nextEmail;
+    }
+
+    await this.userRepository.save(user);
+
+    const payload: AppJwtPayload = {
+      sub: user.id,
+      rol: user.rol,
+      nombre: user.nombre,
+      email: user.email,
+      jti,
+    };
+
+    return {
+      message: 'Perfil actualizado',
+      token: generateJWT(payload),
       user: this.toProfileView(user),
     };
   }
