@@ -363,6 +363,15 @@ export class HistoryService {
     return this.mapDailyClosing(saved);
   }
 
+  async getDailyCutById(id: number) {
+    const closing = await this.dailyClosingRepo.findOne({ where: { id } });
+    if (!closing) {
+      throw new NotFoundException('No se encontro el corte solicitado.');
+    }
+
+    return this.mapDailyClosing(closing, true);
+  }
+
   async exportDailyCutCsv(id: number) {
     const closing = await this.dailyClosingRepo.findOne({ where: { id } });
     if (!closing) {

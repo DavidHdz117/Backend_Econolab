@@ -34,6 +34,11 @@ export class HistoryController {
     return this.historyService.generateDailyCut(date);
   }
 
+  @Get('daily-cuts/:id')
+  getDailyCutById(@Param('id') id: string) {
+    return this.historyService.getDailyCutById(+id);
+  }
+
   @Get('daily-cuts/:id/export')
   async exportDailyCut(@Param('id') id: string, @Res() res: Response) {
     const buffer = await this.historyService.exportDailyCutCsv(+id);
