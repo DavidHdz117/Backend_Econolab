@@ -1,0 +1,172 @@
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class AddPerformanceIndexes20260321000100 implements MigrationInterface {
+  name = 'AddPerformanceIndexes20260321000100';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_service_orders_active_created_at
+      ON service_orders ("isActive", "createdAt" DESC)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_service_orders_active_status_created_at
+      ON service_orders ("isActive", status, "createdAt" DESC)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_service_orders_active_branch_created_at
+      ON service_orders ("isActive", "branchName", "createdAt" DESC)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_service_orders_completed_lab_date
+      ON service_orders (
+        (
+          date(
+            timezone(
+              'America/Mexico_City',
+              coalesce("completedAt", "updatedAt", "createdAt")
+            )
+          )
+        )
+      )
+      WHERE "isActive" = true AND status = 'completed'
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_service_orders_created_lab_date
+      ON service_orders (
+        (
+          date(
+            timezone(
+              'America/Mexico_City',
+              "createdAt"
+            )
+          )
+        )
+      )
+      WHERE "isActive" = true
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_service_order_items_service_order_id
+      ON service_order_items (service_order_id)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_study_results_service_item_active
+      ON study_results (service_order_item_id, "isActive")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_study_results_service_order_active
+      ON study_results (service_order_id, "isActive")
+    `);
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_study_results_active_per_item
+      ON study_results (service_order_item_id)
+      WHERE "isActive" = true
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_study_result_values_result_sort
+      ON study_result_values (study_result_id, "sortOrder")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_studies_active_name
+      ON studies ("isActive", name)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_studies_active_status_type_name
+      ON studies ("isActive", status, type, name)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_study_details_study_active_sort
+      ON study_details (study_id, "isActive", "sortOrder")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_patients_active_last_first
+      ON patients ("isActive", "lastName", "firstName")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_doctors_active_last_first
+      ON doctors ("isActive", "lastName", "firstName")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_confirmed_role_created_at
+      ON "user" (confirmed, rol, "createdAt")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_token
+      ON "user" (token)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_session_user_revoked
+      ON user_session ("userId", revoked)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_login_logs_created_at
+      ON user_login_logs (created_at DESC)
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_login_logs_user_created_at
+      ON user_login_logs (user_id, created_at DESC)
+    `);
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_user_login_logs_user_created_at
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_user_login_logs_created_at
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_user_session_user_revoked
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_user_token
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_user_confirmed_role_created_at
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_doctors_active_last_first
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_patients_active_last_first
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_study_details_study_active_sort
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_studies_active_status_type_name
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_studies_active_name
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_study_result_values_result_sort
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS uq_study_results_active_per_item
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_study_results_service_order_active
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_study_results_service_item_active
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_service_order_items_service_order_id
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_service_orders_created_lab_date
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_service_orders_completed_lab_date
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_service_orders_active_branch_created_at
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_service_orders_active_status_created_at
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_service_orders_active_created_at
+    `);
+  }
+}
