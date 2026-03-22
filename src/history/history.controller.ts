@@ -22,10 +22,7 @@ export class HistoryController {
   constructor(private readonly historyService: HistoryService) {}
 
   @Get('dashboard')
-  getDashboard(
-    @Query('date') date?: string,
-    @Query('search') search?: string,
-  ) {
+  getDashboard(@Query('date') date?: string, @Query('search') search?: string) {
     return this.historyService.getDashboard(date, search);
   }
 

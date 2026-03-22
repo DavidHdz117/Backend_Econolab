@@ -194,7 +194,11 @@ export class UsersService {
       user.nombre = nextNombre;
     }
 
-    if (typeof nextEmail === 'string' && nextEmail && nextEmail !== user.email) {
+    if (
+      typeof nextEmail === 'string' &&
+      nextEmail &&
+      nextEmail !== user.email
+    ) {
       if (user.googleAvatarUrl) {
         throw new ForbiddenException(
           'Las cuentas con Google no pueden cambiar el correo desde este perfil',

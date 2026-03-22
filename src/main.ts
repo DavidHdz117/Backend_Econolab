@@ -26,4 +26,4 @@ async function bootstrap() {
   console.log(`Server running on port ${await app.getUrl()}`);
 }
 
-bootstrap();
+void bootstrap();

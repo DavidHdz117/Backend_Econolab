@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { Role } from '../enums/roles.enum';
+import { RequestWithUser } from '../types/auth-request.type';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -17,11 +18,14 @@ export class RolesGuard implements CanActivate {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
-    if (!required || required.length === 0) return true; // Ruta libre de roles
+    if (!required || required.length === 0) return true;
 
-    const { user } = ctx.switchToHttp().getRequest();
-    if (!user?.rol || !required.includes(user.rol))
-      throw new ForbiddenException('No tienes permiso para esta acción');
+    const request = ctx.switchToHttp().getRequest<RequestWithUser>();
+    const { user } = request;
+
+    if (!user?.rol || !required.includes(user.rol)) {
+      throw new ForbiddenException('No tienes permiso para esta accion');
+    }
 
     return true;
   }

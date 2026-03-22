@@ -19,13 +19,12 @@ export class DatabaseService implements OnModuleDestroy {
       : this.recepcionistaPool;
   }
 
-  async query<T extends QueryResultRow = QueryResultRow>(
+  query<T extends QueryResultRow = QueryResultRow>(
     role: SupportedDbRole | RoleCarrier,
     text: string,
     values: readonly unknown[] = [],
   ): Promise<QueryResult<T>> {
-    const pool = this.getPoolByRole(role);
-    return pool.query<T>(text, values as unknown[]);
+    return this.getPoolByRole(role).query<T>(text, values as unknown[]);
   }
 
   async queryInOperativeSchema<T extends QueryResultRow = QueryResultRow>(
@@ -63,7 +62,7 @@ export class DatabaseService implements OnModuleDestroy {
         ? roleOrUser
         : (roleOrUser.role ?? roleOrUser.rol ?? Role.Recepcionista);
 
-    return rawRole === Role.Admin || rawRole === 'admin'
+    return String(rawRole).toLowerCase() === 'admin'
       ? Role.Admin
       : Role.Recepcionista;
   }

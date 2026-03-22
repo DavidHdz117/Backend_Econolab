@@ -11,11 +11,16 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { User } from '../users/entities/user.entity';
+import {
+  AuthenticatedUser,
+  RequestWithUser,
+} from '../common/types/auth-request.type';
 
 @UsePipes(new ValidationPipe({ transform: true }))
 @Controller('auth')
@@ -26,9 +31,9 @@ export class AuthController {
   ) {}
 
   @Post('login')
-  login(@Req() req, @Body() dto: LoginDto) {
-    const ua = (req.headers['user-agent'] as string) || undefined;
-    const ip = (req.ip as string) || undefined;
+  login(@Req() req: Request, @Body() dto: LoginDto) {
+    const ua = req.get('user-agent') ?? undefined;
+    const ip = req.ip || undefined;
     return this.auth.login(dto, ip, ua);
   }
 
@@ -51,14 +56,17 @@ export class AuthController {
     const googleUrl = `${root}?${params.toString()}`;
     console.log('Redirect a Google:', googleUrl);
 
-    return res.redirect(googleUrl);
+    res.redirect(googleUrl);
   }
 
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
-  async googleCallback(@Req() req, @Res() res) {
-    const ua = (req.headers['user-agent'] as string) || undefined;
-    const ip = (req.ip as string) || undefined;
+  async googleCallback(
+    @Req() req: RequestWithUser<User>,
+    @Res() res: Response,
+  ) {
+    const ua = req.get('user-agent') ?? undefined;
+    const ip = req.ip || undefined;
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
 
     try {
@@ -66,19 +74,22 @@ export class AuthController {
       const url =
         `${frontendUrl}/auth/google` +
         `?token=${encodeURIComponent(result.token)}` +
-        `&message=${encodeURIComponent(result.message ?? 'Autenticado con Google')}` +
+        `&message=${encodeURIComponent(
+          result.message ?? 'Autenticado con Google',
+        )}` +
         `&email=${encodeURIComponent(result.usuario.email)}` +
         `&rol=${encodeURIComponent(result.usuario.rol)}`;
 
       console.log('REDIRECT FRONT:', url.toString());
-      return res.redirect(url.toString());
+      res.redirect(url.toString());
+      return;
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : 'No se pudo completar el inicio de sesion con Google';
 
-      return res.redirect(
+      res.redirect(
         `${frontendUrl}/auth/google?error=${encodeURIComponent(message)}`,
       );
     }
@@ -86,14 +97,14 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(@Req() req) {
+  async logout(@Req() req: RequestWithUser<AuthenticatedUser>) {
     await this.auth.logout(req.user.jti);
     return { message: 'Sesion cerrada' };
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('logout-all')
-  async logoutAll(@Req() req) {
+  async logoutAll(@Req() req: RequestWithUser<AuthenticatedUser>) {
     await this.auth.logoutAll(req.user.id);
     return { message: 'Todas las sesiones fueron cerradas' };
   }

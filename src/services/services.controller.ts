@@ -66,10 +66,7 @@ export class ServicesController {
   ) {
     const buffer = await this.servicesService.generateReceiptPdf(id);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="recibo-${id}.pdf"`,
-    );
+    res.setHeader('Content-Disposition', `inline; filename="recibo-${id}.pdf"`);
     res.send(buffer);
   }
 
@@ -94,10 +91,7 @@ export class ServicesController {
   ) {
     const buffer = await this.servicesService.generateTicketPdf(id);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="ticket-${id}.pdf"`,
-    );
+    res.setHeader('Content-Disposition', `inline; filename="ticket-${id}.pdf"`);
     res.send(buffer);
   }
 

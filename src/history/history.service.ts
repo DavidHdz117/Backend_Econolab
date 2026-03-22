@@ -126,7 +126,9 @@ export class HistoryService {
     ].join(' | ');
   }
 
-  private mapServiceSnapshot(service: ServiceOrder): DailyClosingServiceSnapshot {
+  private mapServiceSnapshot(
+    service: ServiceOrder,
+  ): DailyClosingServiceSnapshot {
     const patientName = service.patient
       ? `${service.patient.firstName} ${service.patient.lastName} ${service.patient.middleName ?? ''}`.trim()
       : 'Sin paciente';
@@ -168,7 +170,8 @@ export class HistoryService {
       (acc, service) => acc + this.toNumber(service.totalAmount),
       0,
     );
-    const averageTicket = services.length > 0 ? totalAmount / services.length : 0;
+    const averageTicket =
+      services.length > 0 ? totalAmount / services.length : 0;
 
     const branchAccumulator = new Map<
       string,
@@ -193,7 +196,10 @@ export class HistoryService {
 
       for (const item of service.items ?? []) {
         const studyName = item.studyNameSnapshot ?? 'Sin estudio';
-        studyAccumulator.set(studyName, (studyAccumulator.get(studyName) ?? 0) + 1);
+        studyAccumulator.set(
+          studyName,
+          (studyAccumulator.get(studyName) ?? 0) + 1,
+        );
       }
 
       const completedMoment = this.getCompletedMoment(service);
@@ -212,7 +218,9 @@ export class HistoryService {
       ...branchAccumulator.values(),
     ].sort((a, b) => b.revenueTotal - a.revenueTotal);
 
-    const topStudies: DailyClosingStudySnapshot[] = [...studyAccumulator.entries()]
+    const topStudies: DailyClosingStudySnapshot[] = [
+      ...studyAccumulator.entries(),
+    ]
       .map(([studyName, times]) => ({ studyName, times }))
       .sort((a, b) => b.times - a.times)
       .slice(0, 8);
@@ -252,7 +260,7 @@ export class HistoryService {
       branchBreakdown: entity.branchBreakdown ?? [],
       topStudies: entity.topStudies ?? [],
       hourlyBreakdown: entity.hourlyBreakdown ?? [],
-      servicesSnapshot: includeSnapshot ? entity.servicesSnapshot ?? [] : [],
+      servicesSnapshot: includeSnapshot ? (entity.servicesSnapshot ?? []) : [],
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };
@@ -295,7 +303,10 @@ export class HistoryService {
 
   async getDashboard(date?: string, search?: string) {
     const { selectedDate } = this.getDayBounds(date);
-    const services = await this.getCompletedServicesForDate(selectedDate, search);
+    const services = await this.getCompletedServicesForDate(
+      selectedDate,
+      search,
+    );
     const summary = this.buildSummary(services);
 
     const savedCut = await this.dailyClosingRepo.findOne({

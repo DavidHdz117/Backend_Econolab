@@ -7,6 +7,37 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 
+interface ErrorItem {
+  message: string;
+  code?: string;
+  field?: string;
+}
+
+interface ExceptionResponseObject {
+  errors?: unknown;
+  message?: unknown;
+}
+
+function normalizeErrorItem(item: unknown): ErrorItem {
+  if (typeof item === 'string') {
+    return { message: item };
+  }
+
+  if (item && typeof item === 'object') {
+    const candidate = item as Record<string, unknown>;
+    return {
+      message:
+        typeof candidate.message === 'string'
+          ? candidate.message
+          : 'Error inesperado',
+      code: typeof candidate.code === 'string' ? candidate.code : undefined,
+      field: typeof candidate.field === 'string' ? candidate.field : undefined,
+    };
+  }
+
+  return { message: 'Error inesperado' };
+}
+
 @Catch(HttpException)
 export class HttpExceptionZodFilter implements ExceptionFilter {
   catch(exception: HttpException, host: ArgumentsHost) {
@@ -15,32 +46,24 @@ export class HttpExceptionZodFilter implements ExceptionFilter {
     const status = exception.getStatus?.() ?? HttpStatus.INTERNAL_SERVER_ERROR;
     const exceptionRes = exception.getResponse?.();
 
-    /**
-     * Construimos siempre: { errors: [{ message, code?, field? }] }
-     */
-    const payload: any = {
-      errors: [] as Array<{ message: string; code?: string; field?: string }>,
+    const payload: { errors: ErrorItem[] } = {
+      errors: [],
     };
 
-    // 1) Cuando lanzas excepciones Nest con string simple: new NotFoundException('Token no válido')
     if (typeof exceptionRes === 'string') {
       payload.errors.push({ message: exceptionRes });
-    }
+    } else if (typeof exceptionRes === 'object' && exceptionRes !== null) {
+      const obj = exceptionRes as ExceptionResponseObject;
 
-    // 2) Cuando Nest te da un objeto { message, error, statusCode } o un array de mensajes
-    else if (typeof exceptionRes === 'object' && exceptionRes !== null) {
-      const obj: any = exceptionRes;
-
-      // a) Si ya vienes con { errors: [...] } desde el servicio, lo respetamos
       if (Array.isArray(obj.errors)) {
-        payload.errors = obj.errors;
+        payload.errors = obj.errors.map(normalizeErrorItem);
       } else if (Array.isArray(obj.message)) {
-        // b) class-validator suele traer message: string[]
-        payload.errors = obj.message.map((m: string) => ({ message: m }));
+        payload.errors = obj.message.map((message) =>
+          normalizeErrorItem(message),
+        );
       } else if (typeof obj.message === 'string') {
         payload.errors.push({ message: obj.message });
       } else {
-        // fallback genérico
         payload.errors.push({ message: 'Error inesperado' });
       }
     } else {

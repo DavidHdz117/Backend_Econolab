@@ -5,7 +5,10 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from 'src/users/users.service';
 
 @Injectable()
-export class GoogleStrategy extends PassportStrategy(Strategy as any, 'google') {
+export class GoogleStrategy extends PassportStrategy(
+  Strategy as any,
+  'google',
+) {
   constructor(
     private readonly cfg: ConfigService,
     private readonly usersService: UsersService,
@@ -24,7 +27,9 @@ export class GoogleStrategy extends PassportStrategy(Strategy as any, 'google') 
     const googleAvatarUrl = profile.photos?.[0]?.value ?? null;
 
     if (!email) {
-      throw new UnauthorizedException('No se pudo obtener el email desde Google');
+      throw new UnauthorizedException(
+        'No se pudo obtener el email desde Google',
+      );
     }
 
     let user = await this.usersService.findByEmail(email);

@@ -86,7 +86,14 @@ export class DashboardService {
     startDateInput?: string,
     endDateInput?: string,
   ) {
-    const allowed: DashboardRange[] = ['today', '7d', '30d', '90d', 'year', 'custom'];
+    const allowed: DashboardRange[] = [
+      'today',
+      '7d',
+      '30d',
+      '90d',
+      'year',
+      'custom',
+    ];
     const requestedRange = allowed.includes(rangeInput as DashboardRange)
       ? (rangeInput as DashboardRange)
       : 'today';
@@ -108,9 +115,13 @@ export class DashboardService {
     const customEnd = this.parseDateInput(endDateInput);
 
     if (requestedRange === 'custom' && customStart && customEnd) {
-      const normalizedStart = customStart <= customEnd ? customStart : customEnd;
+      const normalizedStart =
+        customStart <= customEnd ? customStart : customEnd;
       const normalizedEnd = customStart <= customEnd ? customEnd : customStart;
-      const spanDays = this.getDateDistanceInDays(normalizedStart, normalizedEnd);
+      const spanDays = this.getDateDistanceInDays(
+        normalizedStart,
+        normalizedEnd,
+      );
 
       return {
         range: 'custom' as const,
@@ -122,7 +133,10 @@ export class DashboardService {
     }
 
     const range = requestedRange === 'custom' ? 'today' : requestedRange;
-    const startDate = range === 'today' ? this.getLabDateInput(end) : this.getLabDateInput(start);
+    const startDate =
+      range === 'today'
+        ? this.getLabDateInput(end)
+        : this.getLabDateInput(start);
     const endDate = this.getLabDateInput(end);
 
     const labels: Record<Exclude<DashboardRange, 'custom'>, string> = {
@@ -143,7 +157,9 @@ export class DashboardService {
   }
 
   private getRoleFilter(roleInput?: string): DashboardRoleFilter {
-    return roleInput === 'admin' || roleInput === 'recepcionista' ? roleInput : 'all';
+    return roleInput === 'admin' || roleInput === 'recepcionista'
+      ? roleInput
+      : 'all';
   }
 
   private summarizeStudies(service: ServiceOrder) {
@@ -181,7 +197,9 @@ export class DashboardService {
 
     const ranked = [...counts.entries()]
       .map(([studyName, times]) => ({ studyName, times }))
-      .sort((a, b) => b.times - a.times || a.studyName.localeCompare(b.studyName));
+      .sort(
+        (a, b) => b.times - a.times || a.studyName.localeCompare(b.studyName),
+      );
 
     return {
       ranked,
@@ -208,7 +226,9 @@ export class DashboardService {
       branches.set(branchName, current);
     }
 
-    return [...branches.values()].sort((a, b) => b.revenueTotal - a.revenueTotal);
+    return [...branches.values()].sort(
+      (a, b) => b.revenueTotal - a.revenueTotal,
+    );
   }
 
   private buildTrend(services: ServiceOrder[], grouping: TrendGrouping) {
@@ -218,7 +238,11 @@ export class DashboardService {
     >();
 
     for (const service of services) {
-      const completedAt = service.completedAt ?? service.updatedAt ?? service.createdAt ?? new Date();
+      const completedAt =
+        service.completedAt ??
+        service.updatedAt ??
+        service.createdAt ??
+        new Date();
       const key =
         grouping === 'month'
           ? this.getMonthKey(completedAt)
@@ -242,7 +266,11 @@ export class DashboardService {
     startDateInput?: string,
     endDateInput?: string,
   ) {
-    const rangeConfig = this.getRangeConfig(rangeInput, startDateInput, endDateInput);
+    const rangeConfig = this.getRangeConfig(
+      rangeInput,
+      startDateInput,
+      endDateInput,
+    );
     const roleFilter = this.getRoleFilter(roleInput);
     const createdLocalDateExpr = this.getLocalDateExpression('s.createdAt');
     const completedLocalDateExpr = this.getLocalDateExpression(
@@ -306,7 +334,10 @@ export class DashboardService {
         })
         .getCount(),
       this.userRepo.find({
-        where: [{ confirmed: true, rol: Role.Admin }, { confirmed: true, rol: Role.Recepcionista }],
+        where: [
+          { confirmed: true, rol: Role.Admin },
+          { confirmed: true, rol: Role.Recepcionista },
+        ],
         order: { nombre: 'ASC' },
       }),
       this.loginLogRepo
@@ -325,7 +356,9 @@ export class DashboardService {
         order: { createdAt: 'DESC' },
         take: 12,
       }),
-      this.dailyClosingRepo.findOne({ where: { closingDate: this.getLabDateInput() } }),
+      this.dailyClosingRepo.findOne({
+        where: { closingDate: this.getLabDateInput() },
+      }),
     ]);
 
     const revenueInRange = completedServicesInRange.reduce(
@@ -390,7 +423,8 @@ export class DashboardService {
 
     const roleCounts = {
       admin: users.filter((user) => user.rol === Role.Admin).length,
-      recepcionista: users.filter((user) => user.rol === Role.Recepcionista).length,
+      recepcionista: users.filter((user) => user.rol === Role.Recepcionista)
+        .length,
     };
 
     const filteredUsers = users.filter((user) =>
@@ -476,16 +510,19 @@ export class DashboardService {
         revenueSeries: trend,
       },
       operations: {
-        latestCompletedServices: completedServicesInRange.slice(0, 8).map((service) => ({
-          id: service.id,
-          folio: service.folio,
-          patientName: service.patient
-            ? `${service.patient.firstName} ${service.patient.lastName} ${service.patient.middleName ?? ''}`.trim()
-            : 'Sin paciente',
-          studySummary: this.summarizeStudies(service),
-          totalAmount: this.toNumber(service.totalAmount),
-          completedAt: service.completedAt ?? service.updatedAt ?? service.createdAt,
-        })),
+        latestCompletedServices: completedServicesInRange
+          .slice(0, 8)
+          .map((service) => ({
+            id: service.id,
+            folio: service.folio,
+            patientName: service.patient
+              ? `${service.patient.firstName} ${service.patient.lastName} ${service.patient.middleName ?? ''}`.trim()
+              : 'Sin paciente',
+            studySummary: this.summarizeStudies(service),
+            totalAmount: this.toNumber(service.totalAmount),
+            completedAt:
+              service.completedAt ?? service.updatedAt ?? service.createdAt,
+          })),
       },
     };
   }

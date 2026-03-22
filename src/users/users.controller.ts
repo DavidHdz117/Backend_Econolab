@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { MailService } from 'src/mail/mail.service';
@@ -28,7 +29,7 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 import { IdValidationPipe } from 'src/common/pipes/id-validation/id-validation.pipe';
 import { TokenValidationPipe } from 'src/common/pipes/token-validation/token-validation.pipe';
 import { FileValidationPipe } from 'src/common/pipes/file-validation/file-validation.pipe';
-import { memoryStorage } from 'multer';
+import { RequestWithUser } from '../common/types/auth-request.type';
 
 @Controller('users')
 export class UsersController {
@@ -50,25 +51,21 @@ export class UsersController {
     return { message: 'Registro creado, revisa tu correo' };
   }
 
-  /* ---------- Confirmar cuenta ---------- */
   @Post('confirm-account')
   confirm(@Body() dto: ValidateTokenDto) {
     return this.usersService.confirmAccount(dto.token);
   }
 
-  /* ---------- Forgot password ---------- */
   @Post('forgot-password')
   forgot(@Body() dto: ForgotPasswordDto) {
     return this.usersService.forgotPassword(dto.email);
   }
 
-  /* ---------- Validar token de reset ---------- */
   @Post('validate-reset-token')
   validateReset(@Body('token', TokenValidationPipe) token: string) {
     return this.usersService.validateResetToken(token);
   }
 
-  /* ---------- Resetear contraseña con token ---------- */
   @Post('reset-password/:token')
   reset(
     @Param('token', TokenValidationPipe) token: string,
@@ -77,10 +74,9 @@ export class UsersController {
     return this.usersService.resetPassword(token, dto.password);
   }
 
-  /* ---------- Cambiar contraseña autenticado ---------- */
   @UseGuards(JwtAuthGuard)
   @Patch('update-password')
-  updatePassword(@Req() req, @Body() dto: UpdatePasswordDto) {
+  updatePassword(@Req() req: RequestWithUser, @Body() dto: UpdatePasswordDto) {
     return this.usersService.updatePassword(
       req.user.id,
       dto.current_password,
@@ -88,22 +84,24 @@ export class UsersController {
     );
   }
 
-  /* ---------- Verificar contraseña autenticado ---------- */
   @UseGuards(JwtAuthGuard)
   @Post('check-password')
-  checkPassword(@Req() req, @Body('password') password: string) {
+  checkPassword(
+    @Req() req: RequestWithUser,
+    @Body('password') password: string,
+  ) {
     return this.usersService.checkPassword(req.user.id, password);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  getProfile(@Req() req) {
+  getProfile(@Req() req: RequestWithUser) {
     return this.usersService.getProfile(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('me')
-  updateProfile(@Req() req, @Body() dto: UpdateProfileDto) {
+  updateProfile(@Req() req: RequestWithUser, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateProfile(req.user.id, req.user.jti, dto);
   }
 
@@ -115,7 +113,7 @@ export class UsersController {
     }),
   )
   updateProfileImage(
-    @Req() req,
+    @Req() req: RequestWithUser,
     @UploadedFile(
       new FileValidationPipe({
         required: true,
@@ -129,25 +127,22 @@ export class UsersController {
 }
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('admin/users') // prefijo claro
+@Controller('admin/users')
 export class AdminUsersController {
   constructor(private readonly users: UsersService) {}
 
-  /** Confirmados pero sin rol */
   @Get('unassigned')
   @Roles(Role.Admin)
   findUnassigned() {
     return this.users.findConfirmedUnassigned();
   }
 
-  /** Confirmados con rol cotizador o comprador */
   @Get('with-role')
   @Roles(Role.Admin)
   findWithRole() {
     return this.users.findConfirmedWithRoles();
   }
 
-  /** Asignar / cambiar rol */
   @Patch(':id/role')
   @Roles(Role.Admin)
   updateRole(
@@ -157,7 +152,6 @@ export class AdminUsersController {
     return this.users.setRole(id, dto.rol);
   }
 
-  /** Eliminar usuario (no admin) */
   @Delete(':id')
   @Roles(Role.Admin)
   deleteUser(@Param('id', IdValidationPipe) id: string) {
