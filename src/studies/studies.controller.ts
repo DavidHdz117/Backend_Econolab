@@ -39,6 +39,11 @@ export class StudiesController {
     return this.studiesService.existsByCode(code);
   }
 
+  @Get('next-code')
+  getSuggestedCode(@Query('type') type?: StudyType) {
+    return this.studiesService.getSuggestedCode(type ?? StudyType.STUDY);
+  }
+
   @Post()
   async create(@Body() dto: CreateStudyDto) {
     const study = await this.studiesService.create(dto);

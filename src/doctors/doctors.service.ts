@@ -4,13 +4,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { UpdateDoctorStatusDto } from './dto/update-doctor-status.dto';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { Doctor } from './entities/doctor.entity';
 
 export type DoctorStatusFilter = 'active' | 'inactive' | 'all';
+
+const SQL_NORMALIZE_FROM =
+  '\u00E1\u00E9\u00ED\u00F3\u00FA\u00E4\u00EB\u00EF\u00F6\u00FC\u00E0\u00E8\u00EC\u00F2\u00F9\u00C1\u00C9\u00CD\u00D3\u00DA\u00C4\u00CB\u00CF\u00D6\u00DC\u00C0\u00C8\u00CC\u00D2\u00D9\u00F1\u00D1';
+const SQL_NORMALIZE_TO = 'aeiouaeiouaeiouAEIOUAEIOUAEIOUnN';
 
 @Injectable()
 export class DoctorsService {
@@ -35,8 +39,28 @@ export class DoctorsService {
       .replace(/[^a-z0-9]+/g, '');
   }
 
+  private normalizePhoneValue(value?: string | null) {
+    return (value ?? '').replace(/\D+/g, '');
+  }
+
+  private normalizeEmailValue(value?: string | null) {
+    return (value ?? '').trim().toLowerCase();
+  }
+
   private buildNormalizedSql(field: string) {
-    return `regexp_replace(translate(lower(coalesce(${field}, '')), 'áéíóúäëïöüàèìòùñ', 'aeiouaeiouaeioun'), '[^a-z0-9]+', '', 'g')`;
+    return `regexp_replace(translate(lower(coalesce(${field}, '')), '${SQL_NORMALIZE_FROM}', '${SQL_NORMALIZE_TO}'), '[^a-z0-9]+', '', 'g')`;
+  }
+
+  private buildDigitsOnlySql(field: string) {
+    return `regexp_replace(coalesce(${field}, ''), '[^0-9]+', '', 'g')`;
+  }
+
+  private buildLowerTrimSql(field: string) {
+    return `lower(trim(coalesce(${field}, '')))`;
+  }
+
+  private buildFullNameSql(alias: string) {
+    return `concat_ws(' ', ${alias}.firstName, ${alias}.lastName, ${alias}.middleName)`;
   }
 
   private async findByIdOrFail(id: number) {
@@ -47,6 +71,226 @@ export class DoctorsService {
     }
 
     return doctor;
+  }
+
+  private async findDoctorDuplicateByLicense(
+    licenseNumber?: string,
+    excludeId?: number,
+    activeOnly = false,
+  ) {
+    const normalizedLicense = this.normalizeSearchValue(licenseNumber ?? '');
+    if (!normalizedLicense) {
+      return null;
+    }
+
+    const qb = this.repo
+      .createQueryBuilder('doctor')
+      .where(`${this.buildNormalizedSql('doctor.licenseNumber')} = :license`, {
+        license: normalizedLicense,
+      });
+
+    if (excludeId) {
+      qb.andWhere('doctor.id != :excludeId', { excludeId });
+    }
+
+    if (activeOnly) {
+      qb.andWhere('doctor.isActive = true');
+    }
+
+    return qb.getOne();
+  }
+
+  private async findDoctorDuplicateByNameAndEmail(
+    doctor: Pick<Doctor, 'firstName' | 'lastName' | 'middleName' | 'email'>,
+    excludeId?: number,
+  ) {
+    const normalizedFullName = this.normalizeSearchValue(
+      `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`,
+    );
+    const normalizedEmail = this.normalizeEmailValue(doctor.email);
+
+    if (!normalizedFullName || !normalizedEmail) {
+      return null;
+    }
+
+    const qb = this.repo
+      .createQueryBuilder('doctor')
+      .where(
+        `${this.buildNormalizedSql(this.buildFullNameSql('doctor'))} = :fullName`,
+        { fullName: normalizedFullName },
+      )
+      .andWhere(`${this.buildLowerTrimSql('doctor.email')} = :email`, {
+        email: normalizedEmail,
+      });
+
+    if (excludeId) {
+      qb.andWhere('doctor.id != :excludeId', { excludeId });
+    }
+
+    return qb.getOne();
+  }
+
+  private async findDoctorDuplicateByNameAndPhone(
+    doctor: Pick<Doctor, 'firstName' | 'lastName' | 'middleName' | 'phone'>,
+    excludeId?: number,
+  ) {
+    const normalizedFullName = this.normalizeSearchValue(
+      `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`,
+    );
+    const normalizedPhone = this.normalizePhoneValue(doctor.phone);
+
+    if (!normalizedFullName || !normalizedPhone) {
+      return null;
+    }
+
+    const qb = this.repo
+      .createQueryBuilder('doctor')
+      .where(
+        `${this.buildNormalizedSql(this.buildFullNameSql('doctor'))} = :fullName`,
+        { fullName: normalizedFullName },
+      )
+      .andWhere(`${this.buildDigitsOnlySql('doctor.phone')} = :phone`, {
+        phone: normalizedPhone,
+      });
+
+    if (excludeId) {
+      qb.andWhere('doctor.id != :excludeId', { excludeId });
+    }
+
+    return qb.getOne();
+  }
+
+  private async findDoctorDuplicateByNameAndSpecialty(
+    doctor: Pick<Doctor, 'firstName' | 'lastName' | 'middleName' | 'specialty'>,
+    excludeId?: number,
+  ) {
+    const normalizedFullName = this.normalizeSearchValue(
+      `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`,
+    );
+    const normalizedSpecialty = this.normalizeSearchValue(doctor.specialty ?? '');
+
+    if (!normalizedFullName || !normalizedSpecialty) {
+      return null;
+    }
+
+    const qb = this.repo
+      .createQueryBuilder('doctor')
+      .where(
+        `${this.buildNormalizedSql(this.buildFullNameSql('doctor'))} = :fullName`,
+        { fullName: normalizedFullName },
+      )
+      .andWhere(`${this.buildNormalizedSql('doctor.specialty')} = :specialty`, {
+        specialty: normalizedSpecialty,
+      });
+
+    if (excludeId) {
+      qb.andWhere('doctor.id != :excludeId', { excludeId });
+    }
+
+    return qb.getOne();
+  }
+
+  private async findDoctorDuplicateByNameOnly(
+    doctor: Pick<Doctor, 'firstName' | 'lastName' | 'middleName'>,
+    excludeId?: number,
+  ) {
+    const normalizedFullName = this.normalizeSearchValue(
+      `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`,
+    );
+
+    if (!normalizedFullName) {
+      return null;
+    }
+
+    const qb = this.repo
+      .createQueryBuilder('doctor')
+      .where(
+        `${this.buildNormalizedSql(this.buildFullNameSql('doctor'))} = :fullName`,
+        { fullName: normalizedFullName },
+      );
+
+    if (excludeId) {
+      qb.andWhere('doctor.id != :excludeId', { excludeId });
+    }
+
+    return qb.getOne();
+  }
+
+  private async assertNoDuplicateDoctor(
+    doctor: Pick<
+      Doctor,
+      | 'firstName'
+      | 'lastName'
+      | 'middleName'
+      | 'email'
+      | 'phone'
+      | 'specialty'
+      | 'licenseNumber'
+    >,
+    excludeId?: number,
+  ) {
+    const licenseDuplicate = await this.findDoctorDuplicateByLicense(
+      doctor.licenseNumber,
+      excludeId,
+    );
+
+    if (licenseDuplicate) {
+      throw new ConflictException(
+        'Ya existe un medico con esa cedula profesional.',
+      );
+    }
+
+    const emailDuplicate = await this.findDoctorDuplicateByNameAndEmail(
+      doctor,
+      excludeId,
+    );
+
+    if (emailDuplicate) {
+      throw new ConflictException(
+        'Ya existe un medico con el mismo nombre y correo electronico.',
+      );
+    }
+
+    const phoneDuplicate = await this.findDoctorDuplicateByNameAndPhone(
+      doctor,
+      excludeId,
+    );
+
+    if (phoneDuplicate) {
+      throw new ConflictException(
+        'Ya existe un medico con el mismo nombre y telefono.',
+      );
+    }
+
+    if (
+      !this.normalizeSearchValue(doctor.licenseNumber ?? '') &&
+      !this.normalizeEmailValue(doctor.email) &&
+      !this.normalizePhoneValue(doctor.phone)
+    ) {
+      const specialtyDuplicate = await this.findDoctorDuplicateByNameAndSpecialty(
+        doctor,
+        excludeId,
+      );
+
+      if (specialtyDuplicate) {
+        throw new ConflictException(
+          'Ya existe un medico con el mismo nombre y especialidad.',
+        );
+      }
+
+      if (!this.normalizeSearchValue(doctor.specialty ?? '')) {
+        const nameDuplicate = await this.findDoctorDuplicateByNameOnly(
+          doctor,
+          excludeId,
+        );
+
+        if (nameDuplicate) {
+          throw new ConflictException(
+            'Ya existe un medico con el mismo nombre completo.',
+          );
+        }
+      }
+    }
   }
 
   async search(search: string, page = 1, limit = 10, status?: string) {
@@ -83,9 +327,7 @@ export class DoctorsService {
         this.buildNormalizedSql('doctor.firstName'),
         this.buildNormalizedSql('doctor.lastName'),
         this.buildNormalizedSql('doctor.middleName'),
-        this.buildNormalizedSql(
-          `concat_ws(' ', doctor.firstName, doctor.lastName, doctor.middleName)`,
-        ),
+        this.buildNormalizedSql(this.buildFullNameSql('doctor')),
         this.buildNormalizedSql('doctor.email'),
         this.buildNormalizedSql('doctor.phone'),
         this.buildNormalizedSql('doctor.licenseNumber'),
@@ -113,16 +355,15 @@ export class DoctorsService {
   }
 
   async create(dto: CreateDoctorDto) {
-    if (dto.licenseNumber) {
-      const exists = await this.repo.findOne({
-        where: { licenseNumber: dto.licenseNumber },
-      });
-      if (exists) {
-        throw new ConflictException(
-          'Ya existe un medico registrado con esta cedula profesional.',
-        );
-      }
-    }
+    await this.assertNoDuplicateDoctor({
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      middleName: dto.middleName,
+      email: dto.email,
+      phone: dto.phone,
+      specialty: dto.specialty,
+      licenseNumber: dto.licenseNumber,
+    });
 
     const entity = this.repo.create(dto);
     return this.repo.save(entity);
@@ -135,20 +376,18 @@ export class DoctorsService {
   async update(id: number, dto: UpdateDoctorDto) {
     const doctor = await this.findByIdOrFail(id);
 
-    if (dto.licenseNumber) {
-      const duplicated = await this.repo.findOne({
-        where: {
-          licenseNumber: dto.licenseNumber,
-          id: Not(id),
-        },
-      });
-
-      if (duplicated) {
-        throw new ConflictException(
-          'Ya existe otro medico con esta cedula profesional.',
-        );
-      }
-    }
+    await this.assertNoDuplicateDoctor(
+      {
+        firstName: dto.firstName ?? doctor.firstName,
+        lastName: dto.lastName ?? doctor.lastName,
+        middleName: dto.middleName ?? doctor.middleName,
+        email: dto.email ?? doctor.email,
+        phone: dto.phone ?? doctor.phone,
+        specialty: dto.specialty ?? doctor.specialty,
+        licenseNumber: dto.licenseNumber ?? doctor.licenseNumber,
+      },
+      id,
+    );
 
     const merged = this.repo.merge(doctor, dto);
     return this.repo.save(merged);
@@ -182,10 +421,12 @@ export class DoctorsService {
   }
 
   async existsByLicense(licenseNumber: string) {
-    const doctor = await this.repo.findOne({
-      where: { licenseNumber, isActive: true },
-      select: ['id'],
-    });
+    const doctor = await this.findDoctorDuplicateByLicense(
+      licenseNumber,
+      undefined,
+      true,
+    );
+
     return { exists: !!doctor, doctorId: doctor?.id ?? null };
   }
 }

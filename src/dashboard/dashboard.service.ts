@@ -3,11 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserLoginLog } from '../auth/entities/user-login-log.entity';
 import { Role } from '../common/enums/roles.enum';
+import { Doctor } from '../doctors/entities/doctor.entity';
 import { DailyClosing } from '../history/entities/daily-closing.entity';
+import { Patient } from '../patients/entities/patient.entity';
 import {
   ServiceOrder,
   ServiceStatus,
 } from '../services/entities/service-order.entity';
+import { Study, StudyStatus } from '../studies/entities/study.entity';
 import { User } from '../users/entities/user.entity';
 
 type DashboardRange = 'today' | '7d' | '30d' | '90d' | 'year' | 'custom';
@@ -25,8 +28,14 @@ export class DashboardService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(UserLoginLog)
     private readonly loginLogRepo: Repository<UserLoginLog>,
+    @InjectRepository(Doctor)
+    private readonly doctorRepo: Repository<Doctor>,
     @InjectRepository(DailyClosing)
     private readonly dailyClosingRepo: Repository<DailyClosing>,
+    @InjectRepository(Patient)
+    private readonly patientRepo: Repository<Patient>,
+    @InjectRepository(Study)
+    private readonly studyRepo: Repository<Study>,
   ) {}
 
   private toNumber(value: unknown): number {
@@ -231,6 +240,43 @@ export class DashboardService {
     );
   }
 
+  private buildDoctorName(doctor?: Doctor | null) {
+    if (!doctor) {
+      return 'Sin medico';
+    }
+
+    return [doctor.firstName, doctor.lastName, doctor.middleName ?? '']
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private buildDoctorPerformance(services: ServiceOrder[]) {
+    const doctors = new Map<
+      string,
+      { doctorName: string; servicesCount: number; revenueTotal: number }
+    >();
+
+    for (const service of services) {
+      const doctorName = this.buildDoctorName(service.doctor);
+      const current = doctors.get(doctorName) ?? {
+        doctorName,
+        servicesCount: 0,
+        revenueTotal: 0,
+      };
+      current.servicesCount += 1;
+      current.revenueTotal += this.toNumber(service.totalAmount);
+      doctors.set(doctorName, current);
+    }
+
+    return [...doctors.values()].sort(
+      (a, b) =>
+        b.servicesCount - a.servicesCount ||
+        b.revenueTotal - a.revenueTotal ||
+        a.doctorName.localeCompare(b.doctorName),
+    );
+  }
+
   private buildTrend(services: ServiceOrder[], grouping: TrendGrouping) {
     const buckets = new Map<
       string,
@@ -281,9 +327,16 @@ export class DashboardService {
     const [
       createdServicesInRange,
       completedServicesInRange,
+      totalServicesCount,
+      todayCreatedServicesCount,
+      todayCompletedServices,
       pendingCount,
       inProgressCount,
+      delayedCount,
       cancelledInRangeCount,
+      totalPatientsCount,
+      totalDoctorsCount,
+      activeStudiesCount,
       users,
       rangeLoginLogs,
       recentLoginLogs,
@@ -292,6 +345,7 @@ export class DashboardService {
       this.serviceRepo
         .createQueryBuilder('s')
         .leftJoinAndSelect('s.patient', 'p')
+        .leftJoinAndSelect('s.doctor', 'd')
         .leftJoinAndSelect('s.items', 'i')
         .where('s.isActive = :active', { active: true })
         .andWhere(`${createdLocalDateExpr} >= :startDate`, {
@@ -305,6 +359,7 @@ export class DashboardService {
       this.serviceRepo
         .createQueryBuilder('s')
         .leftJoinAndSelect('s.patient', 'p')
+        .leftJoinAndSelect('s.doctor', 'd')
         .leftJoinAndSelect('s.items', 'i')
         .where('s.isActive = :active', { active: true })
         .andWhere('s.status = :status', { status: ServiceStatus.COMPLETED })
@@ -317,10 +372,35 @@ export class DashboardService {
         .orderBy('coalesce(s.completedAt, s.updatedAt, s.createdAt)', 'DESC')
         .getMany(),
       this.serviceRepo.count({
+        where: { isActive: true },
+      }),
+      this.serviceRepo
+        .createQueryBuilder('s')
+        .where('s.isActive = :active', { active: true })
+        .andWhere(`${createdLocalDateExpr} = :todayDate`, {
+          todayDate: this.getLabDateInput(),
+        })
+        .getCount(),
+      this.serviceRepo
+        .createQueryBuilder('s')
+        .leftJoinAndSelect('s.patient', 'p')
+        .leftJoinAndSelect('s.doctor', 'd')
+        .leftJoinAndSelect('s.items', 'i')
+        .where('s.isActive = :active', { active: true })
+        .andWhere('s.status = :status', { status: ServiceStatus.COMPLETED })
+        .andWhere(`${completedLocalDateExpr} = :todayDate`, {
+          todayDate: this.getLabDateInput(),
+        })
+        .orderBy('coalesce(s.completedAt, s.updatedAt, s.createdAt)', 'DESC')
+        .getMany(),
+      this.serviceRepo.count({
         where: { isActive: true, status: ServiceStatus.PENDING },
       }),
       this.serviceRepo.count({
         where: { isActive: true, status: ServiceStatus.IN_PROGRESS },
+      }),
+      this.serviceRepo.count({
+        where: { isActive: true, status: ServiceStatus.DELAYED },
       }),
       this.serviceRepo
         .createQueryBuilder('s')
@@ -333,6 +413,15 @@ export class DashboardService {
           endDate: rangeConfig.endDate,
         })
         .getCount(),
+      this.patientRepo.count({
+        where: { isActive: true },
+      }),
+      this.doctorRepo.count({
+        where: { isActive: true },
+      }),
+      this.studyRepo.count({
+        where: { isActive: true, status: StudyStatus.ACTIVE },
+      }),
       this.userRepo.find({
         where: [
           { confirmed: true, rol: Role.Admin },
@@ -365,12 +454,13 @@ export class DashboardService {
       (acc, service) => acc + this.toNumber(service.totalAmount),
       0,
     );
-    const averageTicket =
-      completedServicesInRange.length > 0
-        ? revenueInRange / completedServicesInRange.length
-        : 0;
+    const todayRevenue = todayCompletedServices.reduce(
+      (acc, service) => acc + this.toNumber(service.totalAmount),
+      0,
+    );
     const studyRanking = this.buildStudyRanking(createdServicesInRange);
     const branchSummary = this.buildBranchSummary(completedServicesInRange);
+    const doctorPerformance = this.buildDoctorPerformance(createdServicesInRange);
     const trend = this.buildTrend(
       completedServicesInRange,
       rangeConfig.trendGrouping,
@@ -449,10 +539,17 @@ export class DashboardService {
         revenueInRange,
         createdServicesInRange: createdServicesInRange.length,
         completedServicesInRange: completedServicesInRange.length,
-        averageTicket,
+        totalServices: totalServicesCount,
+        createdServicesToday: todayCreatedServicesCount,
+        completedServicesToday: todayCompletedServices.length,
+        todayRevenue,
         pendingServices: pendingCount,
         inProgressServices: inProgressCount,
+        delayedServices: delayedCount,
         cancelledServicesInRange: cancelledInRangeCount,
+        totalPatients: totalPatientsCount,
+        totalDoctors: totalDoctorsCount,
+        activeStudies: activeStudiesCount,
         totalUsers: users.length,
         adminUsers: roleCounts.admin,
         receptionistUsers: roleCounts.recepcionista,
@@ -465,6 +562,10 @@ export class DashboardService {
       branches: {
         strongestInRange: branchSummary[0] ?? null,
         breakdownInRange: branchSummary,
+      },
+      doctors: {
+        topInRange: doctorPerformance[0] ?? null,
+        rankingInRange: doctorPerformance.slice(0, 6),
       },
       logins: {
         successfulInRange: successfulLogins.length,

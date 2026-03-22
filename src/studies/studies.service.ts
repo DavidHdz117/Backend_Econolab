@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { Study, StudyStatus, StudyType } from './entities/study.entity';
 import { StudyDetail } from './entities/study-detail.entity';
 import { CreateStudyDto } from './dto/create-study.dto';
@@ -13,6 +13,14 @@ import { UpdateStudyDto } from './dto/update-study.dto';
 import { CreateStudyDetailDto } from './dto/create-study-detail.dto';
 import { UpdateStudyDetailDto } from './dto/update-study-detail.dto';
 import { UpdateStudyDetailStatusDto } from './dto/update-study-detail-status.dto';
+
+const LAB_TIME_ZONE = 'America/Mexico_City';
+const AUTO_SEQUENCE_PAD = 4;
+const AUTO_STUDY_CODE_PREFIX: Record<StudyType, string> = {
+  [StudyType.STUDY]: 'EST',
+  [StudyType.PACKAGE]: 'PAQ',
+  [StudyType.OTHER]: 'OTR',
+};
 
 @Injectable()
 export class StudiesService {
@@ -33,6 +41,119 @@ export class StudiesService {
 
   private buildNormalizedSql(field: string) {
     return `regexp_replace(lower(translate(coalesce(${field}, ''), 'áéíóúäëïöüàèìòùÁÉÍÓÚÄËÏÖÜÀÈÌÒÙñÑ', 'aeiouaeiouaeiouAEIOUAEIOUAEIOUnN')), '[^a-z0-9]+', '', 'g')`;
+  }
+
+  private getLabDateToken(date = new Date()) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: LAB_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = formatter.formatToParts(date);
+    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+    return `${year}${month}${day}`;
+  }
+
+  private buildAutoStudyCode(
+    type: StudyType,
+    sequence: number,
+    date = new Date(),
+  ) {
+    return `${AUTO_STUDY_CODE_PREFIX[type]}${this.getLabDateToken(date)}${String(sequence).padStart(AUTO_SEQUENCE_PAD, '0')}`;
+  }
+
+  private extractAutoSequenceValue(
+    value: string | null | undefined,
+    type: StudyType,
+    dateToken: string,
+  ) {
+    if (!value) return 0;
+
+    const match = new RegExp(
+      `^${AUTO_STUDY_CODE_PREFIX[type]}${dateToken}(\\d{${AUTO_SEQUENCE_PAD}})$`,
+      'i',
+    ).exec(value.trim());
+
+    return match ? Number(match[1]) : 0;
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return (
+      error instanceof QueryFailedError &&
+      (error as QueryFailedError & { driverError?: { code?: string } }).driverError
+        ?.code === '23505'
+    );
+  }
+
+  private async getNextAutoStudyCode(type: StudyType, date = new Date()) {
+    const dateToken = this.getLabDateToken(date);
+    const prefix = `${AUTO_STUDY_CODE_PREFIX[type]}${dateToken}%`;
+
+    const latest = await this.studyRepo
+      .createQueryBuilder('study')
+      .where('study.code LIKE :prefix', { prefix })
+      .andWhere(
+        `to_char(timezone(:timeZone, study.createdAt), 'YYYYMMDD') = :dateToken`,
+        { timeZone: LAB_TIME_ZONE, dateToken },
+      )
+      .orderBy('study.code', 'DESC')
+      .getOne();
+
+    const nextSequence =
+      this.extractAutoSequenceValue(latest?.code, type, dateToken) + 1;
+
+    return this.buildAutoStudyCode(type, nextSequence, date);
+  }
+
+  private normalizeStudyCode(code?: string | null) {
+    const normalized = code?.trim().toUpperCase();
+    return normalized ? normalized : null;
+  }
+
+  private async findDuplicateStudyByName(
+    name: string,
+    type: StudyType,
+    excludeId?: number,
+  ) {
+    const normalizedName = this.normalizeSearchValue(name);
+
+    if (!normalizedName) {
+      return null;
+    }
+
+    const qb = this.studyRepo
+      .createQueryBuilder('study')
+      .where('study.type = :type', { type })
+      .andWhere(`${this.buildNormalizedSql('study.name')} = :name`, {
+        name: normalizedName,
+      });
+
+    if (excludeId) {
+      qb.andWhere('study.id != :excludeId', { excludeId });
+    }
+
+    return qb.getOne();
+  }
+
+  private async assertNoDuplicateStudyName(
+    name: string,
+    type: StudyType,
+    excludeId?: number,
+  ) {
+    const duplicate = await this.findDuplicateStudyByName(name, type, excludeId);
+
+    if (duplicate) {
+      throw new ConflictException(
+        'Ya existe otro registro con el mismo nombre dentro de este tipo.',
+      );
+    }
+  }
+
+  async getSuggestedCode(type: StudyType = StudyType.STUDY) {
+    return { code: await this.getNextAutoStudyCode(type) };
   }
 
   private async validatePackageStudyIds(
@@ -133,8 +254,13 @@ export class StudiesService {
    * Verificar existencia por clave
    */
   async existsByCode(code: string) {
+    const normalizedCode = this.normalizeStudyCode(code);
+    if (!normalizedCode) {
+      return { exists: false, studyId: null };
+    }
+
     const study = await this.studyRepo.findOne({
-      where: { code, isActive: true },
+      where: { code: normalizedCode, isActive: true },
       select: ['id'],
     });
     return { exists: !!study, studyId: study?.id ?? null };
@@ -144,31 +270,72 @@ export class StudiesService {
    * Crear estudio
    */
   async create(dto: CreateStudyDto) {
-    const existing = await this.studyRepo.findOne({
-      where: { code: dto.code },
-    });
-
-    if (existing) {
-      throw new ConflictException('Ya existe un estudio con esta clave.');
-    }
-
     const packageStudyIds =
       dto.type === StudyType.PACKAGE
         ? await this.validatePackageStudyIds(dto.packageStudyIds)
         : [];
+    await this.assertNoDuplicateStudyName(dto.name, dto.type);
 
-    const entity = this.studyRepo.create({
-      ...dto,
-      packageStudyIds,
-      normalPrice: dto.normalPrice,
-      difPrice: dto.difPrice,
-      specialPrice: dto.specialPrice,
-      hospitalPrice: dto.hospitalPrice,
-      otherPrice: dto.otherPrice,
-      defaultDiscountPercent: dto.defaultDiscountPercent,
-    });
+    const manualCode = this.normalizeStudyCode(dto.code);
+    const useAutoCode = dto.autoGenerateCode ?? false;
 
-    return this.studyRepo.save(entity);
+    if (!useAutoCode && !manualCode) {
+      throw new BadRequestException(
+        'La clave es obligatoria o activa la generacion automatica.',
+      );
+    }
+
+    const saveStudy = async (code: string) => {
+      const entity = this.studyRepo.create({
+        ...dto,
+        code,
+        packageStudyIds,
+        normalPrice: dto.normalPrice,
+        difPrice: dto.difPrice,
+        specialPrice: dto.specialPrice,
+        hospitalPrice: dto.hospitalPrice,
+        otherPrice: dto.otherPrice,
+        defaultDiscountPercent: dto.defaultDiscountPercent,
+      });
+
+      return this.studyRepo.save(entity);
+    };
+
+    if (!useAutoCode && manualCode) {
+      const existing = await this.studyRepo.findOne({
+        where: { code: manualCode },
+      });
+
+      if (existing) {
+        throw new ConflictException('Ya existe un estudio con esta clave.');
+      }
+
+      try {
+        return await saveStudy(manualCode);
+      } catch (error) {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException('Ya existe un estudio con esta clave.');
+        }
+
+        throw error;
+      }
+    }
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nextCode = await this.getNextAutoStudyCode(dto.type);
+
+      try {
+        return await saveStudy(nextCode);
+      } catch (error) {
+        if (!this.isUniqueConstraintError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    throw new ConflictException(
+      'No se pudo generar una clave automatica. Intenta de nuevo.',
+    );
   }
 
   /**
@@ -189,17 +356,22 @@ export class StudiesService {
    */
   async update(id: number, dto: UpdateStudyDto) {
     const study = await this.findOne(id);
+    const nextType = dto.type ?? study.type;
+    const nextName = dto.name ?? study.name;
+    const manualCode = this.normalizeStudyCode(dto.code);
+    const useAutoCode = dto.autoGenerateCode ?? false;
 
-    if (dto.code && dto.code !== study.code) {
+    await this.assertNoDuplicateStudyName(nextName, nextType, id);
+
+    if (!useAutoCode && manualCode && manualCode !== study.code) {
       const existing = await this.studyRepo.findOne({
-        where: { code: dto.code },
+        where: { code: manualCode },
       });
       if (existing && existing.id !== id) {
         throw new ConflictException('Ya existe otro estudio con esta clave.');
       }
     }
 
-    const nextType = dto.type ?? study.type;
     const packageStudyIds =
       nextType === StudyType.PACKAGE
         ? await this.validatePackageStudyIds(
@@ -208,18 +380,50 @@ export class StudiesService {
           )
         : [];
 
-    const merged = this.studyRepo.merge(study, {
-      ...dto,
-      packageStudyIds,
-      normalPrice: dto.normalPrice ?? study.normalPrice,
-      difPrice: dto.difPrice ?? study.difPrice,
-      specialPrice: dto.specialPrice ?? study.specialPrice,
-      hospitalPrice: dto.hospitalPrice ?? study.hospitalPrice,
-      otherPrice: dto.otherPrice ?? study.otherPrice,
-      defaultDiscountPercent:
-        dto.defaultDiscountPercent ?? study.defaultDiscountPercent,
-    });
-    return this.studyRepo.save(merged);
+    const saveStudy = async (code: string) => {
+      const merged = this.studyRepo.merge(study, {
+        ...dto,
+        code,
+        packageStudyIds,
+        normalPrice: dto.normalPrice ?? study.normalPrice,
+        difPrice: dto.difPrice ?? study.difPrice,
+        specialPrice: dto.specialPrice ?? study.specialPrice,
+        hospitalPrice: dto.hospitalPrice ?? study.hospitalPrice,
+        otherPrice: dto.otherPrice ?? study.otherPrice,
+        defaultDiscountPercent:
+          dto.defaultDiscountPercent ?? study.defaultDiscountPercent,
+      });
+
+      return this.studyRepo.save(merged);
+    };
+
+    if (!useAutoCode) {
+      try {
+        return await saveStudy(manualCode ?? study.code);
+      } catch (error) {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException('Ya existe otro estudio con esta clave.');
+        }
+
+        throw error;
+      }
+    }
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nextCode = await this.getNextAutoStudyCode(nextType);
+
+      try {
+        return await saveStudy(nextCode);
+      } catch (error) {
+        if (!this.isUniqueConstraintError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    throw new ConflictException(
+      'No se pudo generar una clave automatica. Intenta de nuevo.',
+    );
   }
 
   /**

@@ -11,8 +11,12 @@ export type DailyClosingServiceSnapshot = {
   serviceId: number;
   folio: string;
   patientName: string;
+  patientPhone?: string | null;
+  doctorName?: string | null;
   studySummary: string;
+  studiesCount?: number;
   branchName: string;
+  sampleAt?: string | null;
   completedAt?: string | null;
   createdAt?: string | null;
   deliveryAt?: string | null;

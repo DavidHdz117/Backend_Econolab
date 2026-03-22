@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -22,8 +23,13 @@ export class HistoryController {
   constructor(private readonly historyService: HistoryService) {}
 
   @Get('dashboard')
-  getDashboard(@Query('date') date?: string, @Query('search') search?: string) {
-    return this.historyService.getDashboard(date, search);
+  getDashboard(
+    @Query('date') date?: string,
+    @Query('search') search?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.historyService.getDashboard(date, search, fromDate, toDate);
   }
 
   @Post('daily-cuts')
@@ -31,9 +37,22 @@ export class HistoryController {
     return this.historyService.generateDailyCut(date);
   }
 
+  @Get('daily-cuts/overview')
+  getDailyCutsOverview(
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.historyService.getDailyCutsOverview(fromDate, toDate);
+  }
+
   @Get('daily-cuts/:id')
   getDailyCutById(@Param('id') id: string) {
     return this.historyService.getDailyCutById(+id);
+  }
+
+  @Delete('daily-cuts/:id')
+  deleteDailyCut(@Param('id') id: string) {
+    return this.historyService.deleteDailyCut(+id);
   }
 
   @Get('daily-cuts/:id/export')

@@ -54,6 +54,11 @@ export class ServicesController {
     });
   }
 
+  @Get('next-folio')
+  getSuggestedFolio() {
+    return this.servicesService.getSuggestedFolio();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.servicesService.findOne(id);

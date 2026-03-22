@@ -2,9 +2,10 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import {
   ServiceOrder,
   ServiceOrderItem,
@@ -24,6 +25,10 @@ import {
 import PDFDocument = require('pdfkit');
 import * as fs from 'fs';
 import * as bwipjs from 'bwip-js';
+
+const LAB_TIME_ZONE = 'America/Mexico_City';
+const AUTO_SERVICE_FOLIO_PREFIX = 'ECO';
+const AUTO_SEQUENCE_PAD = 4;
 
 @Injectable()
 export class ServicesService {
@@ -124,6 +129,72 @@ export class ServicesService {
 
   private sqlNormalizedExpression(expression: string) {
     return `regexp_replace(translate(lower(coalesce(${expression}, '')), 'áàäâéèëêíìïîóòöôúùüûñ', 'aaaaeeeeiiiioooouuuun'), '[^a-z0-9]+', '', 'g')`;
+  }
+
+  private getLabDateToken(date = new Date()) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: LAB_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = formatter.formatToParts(date);
+    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+    return `${year}${month}${day}`;
+  }
+
+  private buildAutoServiceFolio(sequence: number, date = new Date()) {
+    return `${AUTO_SERVICE_FOLIO_PREFIX}${this.getLabDateToken(date)}${String(sequence).padStart(AUTO_SEQUENCE_PAD, '0')}`;
+  }
+
+  private extractAutoSequenceValue(value: string | null | undefined, dateToken: string) {
+    if (!value) return 0;
+
+    const match = new RegExp(
+      `^${AUTO_SERVICE_FOLIO_PREFIX}${dateToken}(\\d{${AUTO_SEQUENCE_PAD}})$`,
+      'i',
+    ).exec(value.trim());
+
+    return match ? Number(match[1]) : 0;
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return (
+      error instanceof QueryFailedError &&
+      (error as QueryFailedError & { driverError?: { code?: string } }).driverError
+        ?.code === '23505'
+    );
+  }
+
+  private async getNextAutoServiceFolio(date = new Date()) {
+    const dateToken = this.getLabDateToken(date);
+    const prefix = `${AUTO_SERVICE_FOLIO_PREFIX}${dateToken}%`;
+
+    const latest = await this.serviceRepo
+      .createQueryBuilder('service')
+      .where('service.folio LIKE :prefix', { prefix })
+      .andWhere(
+        `to_char(timezone(:timeZone, service.createdAt), 'YYYYMMDD') = :dateToken`,
+        { timeZone: LAB_TIME_ZONE, dateToken },
+      )
+      .orderBy('service.folio', 'DESC')
+      .getOne();
+
+    const nextSequence =
+      this.extractAutoSequenceValue(latest?.folio, dateToken) + 1;
+
+    return this.buildAutoServiceFolio(nextSequence, date);
+  }
+
+  private normalizeServiceFolio(folio?: string | null) {
+    const normalized = folio?.trim().toUpperCase();
+    return normalized ? normalized : null;
+  }
+
+  async getSuggestedFolio() {
+    return { folio: await this.getNextAutoServiceFolio() };
   }
 
   private mapPriceTypeLabel(type: ServiceItemPriceType) {
@@ -1138,25 +1209,72 @@ export class ServicesService {
       preparedItems.subtotal * (preparedCourtesyPercent / 100);
     const preparedTotalAmount = preparedItems.subtotal - preparedDiscountAmount;
 
-    const nextServiceEntity = this.serviceRepo.create({
-      folio: dto.folio,
-      patientId: dto.patientId,
-      doctorId: dto.doctorId,
-      branchName: dto.branchName,
-      sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : undefined,
-      deliveryAt: dto.deliveryAt ? new Date(dto.deliveryAt) : undefined,
-      status: dto.status ?? ServiceStatus.PENDING,
-      completedAt:
-        dto.status === ServiceStatus.COMPLETED ? new Date() : undefined,
-      courtesyPercent: preparedCourtesyPercent,
-      subtotalAmount: preparedItems.subtotal,
-      discountAmount: preparedDiscountAmount,
-      totalAmount: preparedTotalAmount,
-      notes: dto.notes,
-      items: preparedItems.items,
-    });
+    const manualFolio = this.normalizeServiceFolio(dto.folio);
+    const useAutoFolio = dto.autoGenerateFolio ?? false;
 
-    return this.serviceRepo.save(nextServiceEntity);
+    if (!useAutoFolio && !manualFolio) {
+      throw new BadRequestException(
+        'El folio es obligatorio o activa la generacion automatica.',
+      );
+    }
+
+    const saveService = async (folio: string) => {
+      const nextServiceEntity = this.serviceRepo.create({
+        folio,
+        patientId: dto.patientId,
+        doctorId: dto.doctorId,
+        branchName: dto.branchName,
+        sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : undefined,
+        deliveryAt: dto.deliveryAt ? new Date(dto.deliveryAt) : undefined,
+        status: dto.status ?? ServiceStatus.PENDING,
+        completedAt:
+          dto.status === ServiceStatus.COMPLETED ? new Date() : undefined,
+        courtesyPercent: preparedCourtesyPercent,
+        subtotalAmount: preparedItems.subtotal,
+        discountAmount: preparedDiscountAmount,
+        totalAmount: preparedTotalAmount,
+        notes: dto.notes,
+        items: preparedItems.items,
+      });
+
+      return this.serviceRepo.save(nextServiceEntity);
+    };
+
+    if (!useAutoFolio && manualFolio) {
+      const existing = await this.serviceRepo.findOne({
+        where: { folio: manualFolio },
+      });
+
+      if (existing) {
+        throw new ConflictException('Ya existe un servicio con este folio.');
+      }
+
+      try {
+        return await saveService(manualFolio);
+      } catch (error) {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException('Ya existe un servicio con este folio.');
+        }
+
+        throw error;
+      }
+    }
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nextFolio = await this.getNextAutoServiceFolio();
+
+      try {
+        return await saveService(nextFolio);
+      } catch (error) {
+        if (!this.isUniqueConstraintError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    throw new ConflictException(
+      'No se pudo generar un folio automatico. Intenta de nuevo.',
+    );
 
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException(
@@ -1428,31 +1546,74 @@ export class ServicesService {
     const nextDiscountAmount = subtotal * (nextCourtesyPercent / 100);
     const nextTotalAmount = subtotal - nextDiscountAmount;
 
-    const nextService = this.serviceRepo.merge(service, {
-      folio: dto.folio ?? service.folio,
-      patientId: dto.patientId ?? service.patientId,
-      doctorId: dto.doctorId ?? service.doctorId,
-      branchName: dto.branchName ?? service.branchName,
-      sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : service.sampleAt,
-      deliveryAt: dto.deliveryAt
-        ? new Date(dto.deliveryAt)
-        : service.deliveryAt,
-      status: dto.status ?? service.status,
-      completedAt:
-        dto.status === ServiceStatus.COMPLETED
-          ? (service.completedAt ?? new Date())
-          : dto.status
-            ? undefined
-            : service.completedAt,
-      courtesyPercent: nextCourtesyPercent,
-      subtotalAmount: subtotal,
-      discountAmount: nextDiscountAmount,
-      totalAmount: nextTotalAmount,
-      notes: dto.notes ?? service.notes,
-      items: nextItems,
-    });
+    const manualFolio = this.normalizeServiceFolio(dto.folio);
+    const useAutoFolio = dto.autoGenerateFolio ?? false;
 
-    return this.serviceRepo.save(nextService);
+    if (!useAutoFolio && manualFolio && manualFolio !== service.folio) {
+      const existing = await this.serviceRepo.findOne({
+        where: { folio: manualFolio },
+      });
+
+      if (existing && existing.id !== service.id) {
+        throw new ConflictException('Ya existe otro servicio con este folio.');
+      }
+    }
+
+    const saveService = async (folio: string) => {
+      const nextService = this.serviceRepo.merge(service, {
+        folio,
+        patientId: dto.patientId ?? service.patientId,
+        doctorId: dto.doctorId ?? service.doctorId,
+        branchName: dto.branchName ?? service.branchName,
+        sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : service.sampleAt,
+        deliveryAt: dto.deliveryAt
+          ? new Date(dto.deliveryAt)
+          : service.deliveryAt,
+        status: dto.status ?? service.status,
+        completedAt:
+          dto.status === ServiceStatus.COMPLETED
+            ? (service.completedAt ?? new Date())
+            : dto.status
+              ? undefined
+              : service.completedAt,
+        courtesyPercent: nextCourtesyPercent,
+        subtotalAmount: subtotal,
+        discountAmount: nextDiscountAmount,
+        totalAmount: nextTotalAmount,
+        notes: dto.notes ?? service.notes,
+        items: nextItems,
+      });
+
+      return this.serviceRepo.save(nextService);
+    };
+
+    if (!useAutoFolio) {
+      try {
+        return await saveService(manualFolio ?? service.folio);
+      } catch (error) {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException('Ya existe otro servicio con este folio.');
+        }
+
+        throw error;
+      }
+    }
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nextFolio = await this.getNextAutoServiceFolio();
+
+      try {
+        return await saveService(nextFolio);
+      } catch (error) {
+        if (!this.isUniqueConstraintError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    throw new ConflictException(
+      'No se pudo generar un folio automatico. Intenta de nuevo.',
+    );
 
     const merged = this.serviceRepo.merge(service, {
       folio: dto.folio ?? service.folio,

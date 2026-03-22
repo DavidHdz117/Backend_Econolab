@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -16,9 +17,15 @@ import { ServiceStatus } from '../entities/service-order.entity';
 import { CreateServiceItemDto } from './service-item.dto';
 
 export class CreateServiceDto {
+  @IsOptional()
   @IsString({ message: 'El folio debe ser una cadena de texto.' })
-  @IsNotEmpty({ message: 'El folio es obligatorio.' })
-  folio: string;
+  @IsNotEmpty({ message: 'El folio no puede estar vacio.' })
+  folio?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean({ message: 'La bandera de folio automatico es invalida.' })
+  autoGenerateFolio?: boolean;
 
   @Type(() => Number)
   @IsInt({

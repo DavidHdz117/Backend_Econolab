@@ -53,6 +53,10 @@ export class HistoryService {
     return `${year}-${month}-${day}`;
   }
 
+  private isValidDateInput(value?: string | null) {
+    return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+  }
+
   private getLabDateInput(value = new Date()) {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: this.labTimeZone,
@@ -80,22 +84,56 @@ export class HistoryService {
     return `${hour}:00`;
   }
 
-  private getDayBounds(dateInput?: string) {
-    const selectedDate =
-      dateInput && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)
-        ? dateInput
-        : this.getLabDateInput();
+  private getLabDateFromValue(value?: Date | null) {
+    if (!value) {
+      return this.getLabDateInput();
+    }
+
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: this.labTimeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = formatter.formatToParts(value);
+    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+    return `${year}-${month}-${day}`;
+  }
+
+  private getDateRangeBounds(
+    dateInput?: string,
+    fromDateInput?: string,
+    toDateInput?: string,
+  ) {
+    const fallbackDate = this.getLabDateInput();
+    const singleDate = this.isValidDateInput(dateInput)
+      ? dateInput!
+      : undefined;
+    let fromDate: string = this.isValidDateInput(fromDateInput)
+      ? fromDateInput!
+      : singleDate ?? fallbackDate;
+    let toDate: string = this.isValidDateInput(toDateInput)
+      ? toDateInput!
+      : singleDate ?? fromDate;
+
+    if (fromDate > toDate) {
+      [fromDate, toDate] = [toDate, fromDate];
+    }
+
     const start = new Date(
-      `${selectedDate}T00:00:00.000${this.labTimeZoneOffset}`,
+      `${fromDate}T00:00:00.000${this.labTimeZoneOffset}`,
     );
-    const end = new Date(
-      `${selectedDate}T23:59:59.999${this.labTimeZoneOffset}`,
-    );
+    const end = new Date(`${toDate}T23:59:59.999${this.labTimeZoneOffset}`);
 
     return {
-      selectedDate,
+      selectedDate: singleDate ?? (fromDate === toDate ? fromDate : toDate),
+      fromDate,
+      toDate,
       start,
       end,
+      isSingleDay: fromDate === toDate,
     };
   }
 
@@ -126,6 +164,20 @@ export class HistoryService {
     ].join(' | ');
   }
 
+  private getDoctorName(service: ServiceOrder) {
+    if (!service.doctor) {
+      return null;
+    }
+
+    return [
+      service.doctor.firstName,
+      service.doctor.lastName,
+      service.doctor.middleName ?? '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
   private mapServiceSnapshot(
     service: ServiceOrder,
   ): DailyClosingServiceSnapshot {
@@ -137,8 +189,12 @@ export class HistoryService {
       serviceId: service.id,
       folio: service.folio,
       patientName,
+      patientPhone: service.patient?.phone ?? null,
+      doctorName: this.getDoctorName(service),
       studySummary: this.summarizeStudies(service),
+      studiesCount: service.items?.length ?? 0,
       branchName: service.branchName ?? 'Sin sucursal',
+      sampleAt: service.sampleAt?.toISOString() ?? null,
       completedAt: this.getCompletedMoment(service)?.toISOString() ?? null,
       createdAt: service.createdAt?.toISOString() ?? null,
       deliveryAt: service.deliveryAt?.toISOString() ?? null,
@@ -266,7 +322,11 @@ export class HistoryService {
     };
   }
 
-  private async getCompletedServicesForDate(date: string, search?: string) {
+  private async getCompletedServicesForRange(
+    fromDate: string,
+    toDate: string,
+    search?: string,
+  ) {
     const normalizedSearch = this.normalizeSearchText(search);
     const completedAtExpr = `coalesce(s.completedAt, s.updatedAt, s.createdAt)`;
     const labDateExpr = `date(timezone('${this.labTimeZone}', ${completedAtExpr}))`;
@@ -280,7 +340,10 @@ export class HistoryService {
       .leftJoinAndSelect('s.items', 'i')
       .where('s.isActive = :active', { active: true })
       .andWhere('s.status = :status', { status: ServiceStatus.COMPLETED })
-      .andWhere(`${labDateExpr} = :selectedDate`, { selectedDate: date })
+      .andWhere(`${labDateExpr} BETWEEN :fromDate AND :toDate`, {
+        fromDate,
+        toDate,
+      })
       .distinct(true);
 
     if (normalizedSearch) {
@@ -301,17 +364,26 @@ export class HistoryService {
     return qb.getMany();
   }
 
-  async getDashboard(date?: string, search?: string) {
-    const { selectedDate } = this.getDayBounds(date);
-    const services = await this.getCompletedServicesForDate(
-      selectedDate,
+  async getDashboard(
+    date?: string,
+    search?: string,
+    fromDateInput?: string,
+    toDateInput?: string,
+  ) {
+    const { selectedDate, fromDate, toDate, isSingleDay } =
+      this.getDateRangeBounds(date, fromDateInput, toDateInput);
+    const services = await this.getCompletedServicesForRange(
+      fromDate,
+      toDate,
       search,
     );
     const summary = this.buildSummary(services);
 
-    const savedCut = await this.dailyClosingRepo.findOne({
-      where: { closingDate: selectedDate },
-    });
+    const savedCut = isSingleDay
+      ? await this.dailyClosingRepo.findOne({
+          where: { closingDate: fromDate },
+        })
+      : null;
 
     const recentCuts = await this.dailyClosingRepo.find({
       order: { closingDate: 'DESC' },
@@ -320,6 +392,9 @@ export class HistoryService {
 
     return {
       selectedDate,
+      fromDate,
+      toDate,
+      isSingleDay,
       services: services.map((service) => ({
         id: service.id,
         folio: service.folio,
@@ -327,8 +402,11 @@ export class HistoryService {
           ? `${service.patient.firstName} ${service.patient.lastName} ${service.patient.middleName ?? ''}`.trim()
           : 'Sin paciente',
         telefono: service.patient?.phone ?? '-',
+        medico: this.getDoctorName(service) ?? 'Sin medico',
         estudio: this.summarizeStudies(service),
+        estudiosCount: service.items?.length ?? 0,
         sucursal: service.branchName ?? 'Sin sucursal',
+        fechaMuestra: service.sampleAt,
         fechaCreacion: service.createdAt,
         fechaEntrega: service.deliveryAt,
         fechaConclusion: this.getCompletedMoment(service),
@@ -343,18 +421,61 @@ export class HistoryService {
     };
   }
 
+  private buildSummaryFromDailyClosing(closing: DailyClosing) {
+    return {
+      servicesCount: closing.servicesCount,
+      patientsCount: closing.patientsCount,
+      studiesCount: closing.studiesCount,
+      subtotalAmount: this.toNumber(closing.subtotalAmount),
+      discountAmount: this.toNumber(closing.discountAmount),
+      totalAmount: this.toNumber(closing.totalAmount),
+      averageTicket: this.toNumber(closing.averageTicket),
+      branchBreakdown: closing.branchBreakdown ?? [],
+      topStudies: closing.topStudies ?? [],
+      hourlyBreakdown: closing.hourlyBreakdown ?? [],
+      servicesSnapshot: closing.servicesSnapshot ?? [],
+    };
+  }
+
+  private buildDailyOverviewRow(
+    date: string,
+    summary: ReturnType<HistoryService['buildSummary']>,
+    savedCut?: DailyClosing | null,
+  ) {
+    const topStudy = summary.topStudies[0] ?? null;
+    const strongestBranch = summary.branchBreakdown[0] ?? null;
+
+    return {
+      date,
+      servicesCount: summary.servicesCount,
+      patientsCount: summary.patientsCount,
+      studiesCount: summary.studiesCount,
+      subtotalAmount: summary.subtotalAmount,
+      discountAmount: summary.discountAmount,
+      totalAmount: summary.totalAmount,
+      averageTicket: summary.averageTicket,
+      topStudyName: topStudy?.studyName ?? null,
+      topStudyTimes: topStudy?.times ?? 0,
+      strongestBranchName: strongestBranch?.branchName ?? null,
+      strongestBranchRevenue: strongestBranch?.revenueTotal ?? 0,
+      savedCutId: savedCut?.id ?? null,
+      savedCutUpdatedAt: savedCut?.updatedAt ?? null,
+      isSaved: Boolean(savedCut),
+    };
+  }
+
   async generateDailyCut(date?: string) {
-    const { selectedDate, start, end } = this.getDayBounds(date);
-    const services = await this.getCompletedServicesForDate(selectedDate);
+    const { fromDate, start, end } = this.getDateRangeBounds(date, date, date);
+    const services = await this.getCompletedServicesForRange(fromDate, fromDate);
     const summary = this.buildSummary(services);
 
     const existing = await this.dailyClosingRepo.findOne({
-      where: { closingDate: selectedDate },
+      where: { closingDate: fromDate },
     });
 
     const entity = this.dailyClosingRepo.create({
       id: existing?.id,
-      closingDate: selectedDate,
+      closingDate: fromDate,
       periodStart: start,
       periodEnd: end,
       servicesCount: summary.servicesCount,
@@ -374,6 +495,82 @@ export class HistoryService {
     return this.mapDailyClosing(saved);
   }
 
+  async getDailyCutsOverview(fromDateInput?: string, toDateInput?: string) {
+    const { fromDate, toDate } = this.getDateRangeBounds(
+      undefined,
+      fromDateInput,
+      toDateInput,
+    );
+
+    const [services, savedCuts] = await Promise.all([
+      this.getCompletedServicesForRange(fromDate, toDate),
+      this.dailyClosingRepo
+        .createQueryBuilder('dailyClosing')
+        .where('dailyClosing.closingDate BETWEEN :fromDate AND :toDate', {
+          fromDate,
+          toDate,
+        })
+        .orderBy('dailyClosing.closingDate', 'DESC')
+        .getMany(),
+    ]);
+
+    const servicesByDate = new Map<string, ServiceOrder[]>();
+    for (const service of services) {
+      const date = this.getLabDateFromValue(this.getCompletedMoment(service));
+      const current = servicesByDate.get(date) ?? [];
+      current.push(service);
+      servicesByDate.set(date, current);
+    }
+
+    const savedCutsByDate = new Map(
+      savedCuts.map((cut) => [cut.closingDate, cut] as const),
+    );
+    const allDates = new Set<string>([
+      ...servicesByDate.keys(),
+      ...savedCutsByDate.keys(),
+    ]);
+
+    const days = [...allDates]
+      .map((date) => {
+        const savedCut = savedCutsByDate.get(date) ?? null;
+        const summary = savedCut
+          ? this.buildSummaryFromDailyClosing(savedCut)
+          : this.buildSummary(servicesByDate.get(date) ?? []);
+
+        return this.buildDailyOverviewRow(date, summary, savedCut);
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    const totals = days.reduce(
+      (acc, day) => {
+        acc.servicesCount += day.servicesCount;
+        acc.patientsCount += day.patientsCount;
+        acc.studiesCount += day.studiesCount;
+        acc.subtotalAmount += day.subtotalAmount;
+        acc.discountAmount += day.discountAmount;
+        acc.totalAmount += day.totalAmount;
+        return acc;
+      },
+      {
+        servicesCount: 0,
+        patientsCount: 0,
+        studiesCount: 0,
+        subtotalAmount: 0,
+        discountAmount: 0,
+        totalAmount: 0,
+      },
+    );
+
+    return {
+      fromDate,
+      toDate,
+      totalDays: days.length,
+      savedDaysCount: days.filter((day) => day.isSaved).length,
+      days,
+      totals,
+    };
+  }
+
   async getDailyCutById(id: number) {
     const closing = await this.dailyClosingRepo.findOne({ where: { id } });
     if (!closing) {
@@ -381,6 +578,20 @@ export class HistoryService {
     }
 
     return this.mapDailyClosing(closing, true);
+  }
+
+  async deleteDailyCut(id: number) {
+    const closing = await this.dailyClosingRepo.findOne({ where: { id } });
+    if (!closing) {
+      throw new NotFoundException('No se encontro el corte solicitado.');
+    }
+
+    await this.dailyClosingRepo.delete({ id });
+
+    return {
+      id,
+      message: `Corte del ${closing.closingDate} eliminado correctamente.`,
+    };
   }
 
   async exportDailyCutCsv(id: number) {
@@ -394,6 +605,29 @@ export class HistoryService {
       const raw = value == null ? '' : String(value);
       return `"${raw.replace(/"/g, '""')}"`;
     };
+    const inferStudiesCountFromSummary = (summaryText?: string | null) => {
+      if (!summaryText?.trim()) {
+        return 0;
+      }
+
+      return summaryText
+        .split('|')
+        .map((segment) => segment.trim())
+        .filter(Boolean)
+        .reduce((total, segment) => {
+          if (segment.includes(':')) {
+            const studiesPart = segment.split(':').slice(1).join(':');
+            const studies = studiesPart
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean).length;
+
+            return total + Math.max(studies, 1);
+          }
+
+          return total + 1;
+        }, 0);
+    };
 
     const lines: string[] = [];
     lines.push('\uFEFFCorte del dia');
@@ -406,7 +640,6 @@ export class HistoryService {
         'Subtotal',
         'Descuento',
         'Total',
-        'Ticket promedio',
       ].join(','),
     );
     lines.push(
@@ -418,7 +651,6 @@ export class HistoryService {
         summary.subtotalAmount.toFixed(2),
         summary.discountAmount.toFixed(2),
         summary.totalAmount.toFixed(2),
-        summary.averageTicket.toFixed(2),
       ].join(','),
     );
     lines.push('');
@@ -427,8 +659,12 @@ export class HistoryService {
       [
         'Folio',
         'Paciente',
+        'Telefono',
+        'Medico',
+        'Cantidad de estudios',
         'Estudios',
         'Sucursal',
+        'Fecha muestra',
         'Conclusion',
         'Creacion',
         'Entrega',
@@ -443,8 +679,12 @@ export class HistoryService {
         [
           escapeCsv(item.folio),
           escapeCsv(item.patientName),
+          escapeCsv(item.patientPhone ?? ''),
+          escapeCsv(item.doctorName ?? ''),
+          item.studiesCount ?? inferStudiesCountFromSummary(item.studySummary),
           escapeCsv(item.studySummary),
           escapeCsv(item.branchName),
+          escapeCsv(item.sampleAt ?? ''),
           escapeCsv(item.completedAt ?? ''),
           escapeCsv(item.createdAt ?? ''),
           escapeCsv(item.deliveryAt ?? ''),
