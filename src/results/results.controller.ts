@@ -15,6 +15,7 @@ import { ResultsService } from './results.service';
 import { CreateStudyResultDto } from './dto/create-study-result.dto';
 import { UpdateStudyResultDto } from './dto/update-study-result.dto';
 import { Response } from 'express';
+import { sendInlinePdf } from '../common/utils/pdf-response.util';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('results')
@@ -33,12 +34,7 @@ export class ResultsController {
     @Res() res: Response,
   ) {
     const buffer = await this.resultsService.generatePdf(+id, query);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="resultado-${id}.pdf"`,
-    );
-    res.send(buffer);
+    sendInlinePdf(res, `resultado-${id}.pdf`, buffer);
   }
 
   @Get('service-order/:serviceOrderId/pdf')
@@ -51,12 +47,7 @@ export class ResultsController {
       +serviceOrderId,
       query,
     );
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="resultado-servicio-${serviceOrderId}.pdf"`,
-    );
-    res.send(buffer);
+    sendInlinePdf(res, `resultado-servicio-${serviceOrderId}.pdf`, buffer);
   }
 
   @Get('service-item/:serviceOrderItemId')

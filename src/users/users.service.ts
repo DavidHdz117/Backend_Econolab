@@ -23,26 +23,6 @@ export class UsersService {
     private readonly mailService: MailService,
   ) {}
 
-  async registerFailedLogin(user: User) {
-    const MAX_ATTEMPTS = 3;
-    const LOCK_MINUTES = 15;
-    const now = new Date();
-
-    user.failedLoginAttempts = (user.failedLoginAttempts ?? 0) + 1;
-
-    if (user.failedLoginAttempts >= MAX_ATTEMPTS) {
-      user.lockUntil = new Date(now.getTime() + LOCK_MINUTES * 60 * 1000);
-    }
-
-    await this.userRepository.save(user);
-  }
-
-  async resetLoginAttempts(user: User) {
-    user.failedLoginAttempts = 0;
-    user.lockUntil = null;
-    await this.userRepository.save(user);
-  }
-
   async register(dto: CreateUserDto) {
     const exists = await this.findByEmail(dto.email);
     if (exists) throw new ConflictException('El correo ya esta en uso');
@@ -237,10 +217,6 @@ export class UsersService {
     return { message: 'Contrasena correcta' };
   }
 
-  async findConfirmed() {
-    return this.userRepository.find({ where: { confirmed: true } });
-  }
-
   async setRole(id: string, rol: Role) {
     const user = await this.findOne(id);
     if (!user) throw new NotFoundException('Usuario no encontrado');
@@ -321,14 +297,6 @@ export class UsersService {
     });
     await this.userRepository.save(user);
     return user;
-  }
-
-  async getRoleOnly(id: string): Promise<Role | null> {
-    const record = await this.userRepository.findOne({
-      where: { id },
-      select: ['rol'],
-    });
-    return record?.rol ?? null;
   }
 
   async registerFromGoogle(data: {

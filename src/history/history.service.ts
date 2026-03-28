@@ -1,6 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { getLabDateInput } from '../common/utils/lab-date.util';
+import { toFiniteNumber } from '../common/utils/number.util';
+import { buildPersonName } from '../common/utils/person.util';
+import {
+  buildCompactSearchSqlExpression,
+  normalizeCompactSearchText,
+} from '../common/utils/search-normalization.util';
+import { summarizeServiceStudies } from '../common/utils/service-order-summary.util';
 import {
   ServiceOrder,
   ServiceStatus,
@@ -26,31 +34,15 @@ export class HistoryService {
   ) {}
 
   private toNumber(value: unknown): number {
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return toFiniteNumber(value);
   }
 
   private normalizeSearchText(value?: string | null) {
-    if (!value) return '';
-
-    return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9]+/g, '')
-      .toLowerCase()
-      .trim();
+    return normalizeCompactSearchText(value);
   }
 
   private sqlNormalizedExpression(expression: string) {
-    return `regexp_replace(translate(lower(coalesce(${expression}, '')), 'áàäâéèëêíìïîóòöôúùüûñ', 'aaaaeeeeiiiioooouuuun'), '[^a-z0-9]+', '', 'g')`;
-  }
-
-  private formatDateForInput(value: Date) {
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return buildCompactSearchSqlExpression(expression);
   }
 
   private isValidDateInput(value?: string | null) {
@@ -58,17 +50,7 @@ export class HistoryService {
   }
 
   private getLabDateInput(value = new Date()) {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: this.labTimeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const parts = formatter.formatToParts(value);
-    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
-    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
-    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
-    return `${year}-${month}-${day}`;
+    return getLabDateInput(this.labTimeZone, value);
   }
 
   private getLabHourLabel(value?: Date | null) {
@@ -85,21 +67,7 @@ export class HistoryService {
   }
 
   private getLabDateFromValue(value?: Date | null) {
-    if (!value) {
-      return this.getLabDateInput();
-    }
-
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: this.labTimeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const parts = formatter.formatToParts(value);
-    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
-    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
-    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
-    return `${year}-${month}-${day}`;
+    return this.getLabDateInput(value ?? new Date());
   }
 
   private getDateRangeBounds(
@@ -113,18 +81,16 @@ export class HistoryService {
       : undefined;
     let fromDate: string = this.isValidDateInput(fromDateInput)
       ? fromDateInput!
-      : singleDate ?? fallbackDate;
+      : (singleDate ?? fallbackDate);
     let toDate: string = this.isValidDateInput(toDateInput)
       ? toDateInput!
-      : singleDate ?? fromDate;
+      : (singleDate ?? fromDate);
 
     if (fromDate > toDate) {
       [fromDate, toDate] = [toDate, fromDate];
     }
 
-    const start = new Date(
-      `${fromDate}T00:00:00.000${this.labTimeZoneOffset}`,
-    );
+    const start = new Date(`${fromDate}T00:00:00.000${this.labTimeZoneOffset}`);
     const end = new Date(`${toDate}T23:59:59.999${this.labTimeZoneOffset}`);
 
     return {
@@ -142,26 +108,7 @@ export class HistoryService {
   }
 
   private summarizeStudies(service: ServiceOrder) {
-    const packageGroups = new Map<string, string[]>();
-    const standaloneStudies: string[] = [];
-
-    for (const item of service.items ?? []) {
-      if (item.sourcePackageNameSnapshot) {
-        const current = packageGroups.get(item.sourcePackageNameSnapshot) ?? [];
-        current.push(item.studyNameSnapshot);
-        packageGroups.set(item.sourcePackageNameSnapshot, current);
-        continue;
-      }
-
-      standaloneStudies.push(item.studyNameSnapshot);
-    }
-
-    return [
-      ...[...packageGroups.entries()].map(
-        ([packageName, studies]) => `${packageName}: ${studies.join(', ')}`,
-      ),
-      ...standaloneStudies,
-    ].join(' | ');
+    return summarizeServiceStudies(service);
   }
 
   private getDoctorName(service: ServiceOrder) {
@@ -169,21 +116,24 @@ export class HistoryService {
       return null;
     }
 
-    return [
-      service.doctor.firstName,
-      service.doctor.lastName,
-      service.doctor.middleName ?? '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+    return (
+      buildPersonName(
+        service.doctor.firstName,
+        service.doctor.lastName,
+        service.doctor.middleName,
+      ) || null
+    );
   }
 
   private mapServiceSnapshot(
     service: ServiceOrder,
   ): DailyClosingServiceSnapshot {
-    const patientName = service.patient
-      ? `${service.patient.firstName} ${service.patient.lastName} ${service.patient.middleName ?? ''}`.trim()
-      : 'Sin paciente';
+    const patientName =
+      buildPersonName(
+        service.patient?.firstName,
+        service.patient?.lastName,
+        service.patient?.middleName,
+      ) || 'Sin paciente';
 
     return {
       serviceId: service.id,
@@ -466,7 +416,10 @@ export class HistoryService {
 
   async generateDailyCut(date?: string) {
     const { fromDate, start, end } = this.getDateRangeBounds(date, date, date);
-    const services = await this.getCompletedServicesForRange(fromDate, fromDate);
+    const services = await this.getCompletedServicesForRange(
+      fromDate,
+      fromDate,
+    );
     const summary = this.buildSummary(services);
 
     const existing = await this.dailyClosingRepo.findOne({

@@ -18,6 +18,7 @@ import { UpdateServiceDto } from './dto/update-service.dto';
 import { UpdateServiceStatusDto } from './dto/update-service-status.dto';
 import { ServiceStatus } from './entities/service-order.entity';
 import { Response } from 'express';
+import { sendInlinePdf } from '../common/utils/pdf-response.util';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('services')
@@ -70,9 +71,7 @@ export class ServicesController {
     @Res() res: Response,
   ) {
     const buffer = await this.servicesService.generateReceiptPdf(id);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="recibo-${id}.pdf"`);
-    res.send(buffer);
+    sendInlinePdf(res, `recibo-${id}.pdf`, buffer);
   }
 
   @Get(':id/labels')
@@ -81,12 +80,7 @@ export class ServicesController {
     @Res() res: Response,
   ) {
     const buffer = await this.servicesService.generateTubeLabelsPdf(id);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="etiquetas-${id}.pdf"`,
-    );
-    res.send(buffer);
+    sendInlinePdf(res, `etiquetas-${id}.pdf`, buffer);
   }
 
   @Get(':id/ticket')
@@ -95,9 +89,7 @@ export class ServicesController {
     @Res() res: Response,
   ) {
     const buffer = await this.servicesService.generateTicketPdf(id);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="ticket-${id}.pdf"`);
-    res.send(buffer);
+    sendInlinePdf(res, `ticket-${id}.pdf`, buffer);
   }
 
   @Get('folio/:folio')

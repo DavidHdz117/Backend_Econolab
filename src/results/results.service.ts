@@ -8,6 +8,7 @@ import PDFDocument = require('pdfkit');
 import { Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
+import { buildPersonName, formatAgeLabel } from '../common/utils/person.util';
 import {
   ServiceOrder,
   ServiceOrderItem,
@@ -90,6 +91,34 @@ export class ResultsService {
     });
   }
 
+  private async findStudyDetailById(studyDetailId?: number) {
+    if (!studyDetailId) {
+      return undefined;
+    }
+
+    const detail = await this.detailRepo.findOne({
+      where: { id: studyDetailId },
+    });
+
+    return detail ?? undefined;
+  }
+
+  private async mapValueDtosToEntities(dtos: StudyResultValueDto[]) {
+    const details = await Promise.all(
+      dtos.map((dto) => this.findStudyDetailById(dto.studyDetailId)),
+    );
+
+    return dtos.map((dto, index) =>
+      this.mapValueDtoToEntity(dto, details[index]),
+    );
+  }
+
+  private findActiveResultByServiceItem(serviceOrderItemId: number) {
+    return this.resultRepo.findOne({
+      where: { serviceOrderItemId, isActive: true },
+    });
+  }
+
   private async buildQrBuffer(result: StudyResult): Promise<Buffer | null> {
     const template = process.env.LAB_QR_URL ?? '';
     const base = process.env.LAB_QR_BASE_URL ?? '';
@@ -126,23 +155,6 @@ export class ResultsService {
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 
-  private formatAgeLabel(birthDate?: string) {
-    if (!birthDate) return '';
-    const birth = new Date(birthDate);
-    if (Number.isNaN(birth.getTime())) return '';
-    const today = new Date();
-    let age = today.getFullYear() - birth.getFullYear();
-    const monthDelta = today.getMonth() - birth.getMonth();
-    if (
-      monthDelta < 0 ||
-      (monthDelta === 0 && today.getDate() < birth.getDate())
-    ) {
-      age -= 1;
-    }
-
-    return `${age} años`;
-  }
-
   private formatGenderLabel(gender?: string | null) {
     switch (gender) {
       case 'male':
@@ -154,18 +166,6 @@ export class ResultsService {
       default:
         return 'N/D';
     }
-  }
-
-  private buildPersonName(
-    firstName?: string | null,
-    lastName?: string | null,
-    middleName?: string | null,
-  ) {
-    return [firstName, lastName, middleName]
-      .filter((part): part is string => Boolean(part?.trim()))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
   }
 
   private displayText(value?: string | null) {
@@ -402,12 +402,12 @@ export class ResultsService {
       const signatureX = right - signatureWidth;
       const footerBlockHeight = options.includeSignature ? 150 : 110;
 
-      const patientName = this.buildPersonName(
+      const patientName = buildPersonName(
         patient?.firstName,
         patient?.lastName,
         patient?.middleName,
       );
-      const doctorName = this.buildPersonName(
+      const doctorName = buildPersonName(
         doctor?.firstName,
         doctor?.lastName,
         doctor?.middleName,
@@ -415,7 +415,7 @@ export class ResultsService {
       const doctorDisplayName = doctorName || 'A QUIEN CORRESPONDA';
       const patientBirthDate = this.formatBirthDateLabel(patient?.birthDate);
       const patientAge = this.displayText(
-        this.formatAgeLabel(patient?.birthDate),
+        formatAgeLabel(patient?.birthDate, ''),
       );
       const patientGender = this.displayText(
         this.formatGenderLabel(patient?.gender),
@@ -815,12 +815,12 @@ export class ResultsService {
               .filter((name) => Boolean(name?.trim()))
               .join(', ') || 'RESULTADOS';
 
-      const patientName = this.buildPersonName(
+      const patientName = buildPersonName(
         patient?.firstName,
         patient?.lastName,
         patient?.middleName,
       );
-      const doctorName = this.buildPersonName(
+      const doctorName = buildPersonName(
         doctor?.firstName,
         doctor?.lastName,
         doctor?.middleName,
@@ -828,7 +828,7 @@ export class ResultsService {
       const doctorDisplayName = doctorName || 'A QUIEN CORRESPONDA';
       const patientBirthDate = this.formatBirthDateLabel(patient?.birthDate);
       const patientAge = this.displayText(
-        this.formatAgeLabel(patient?.birthDate),
+        formatAgeLabel(patient?.birthDate, ''),
       );
       const patientGender = this.displayText(
         this.formatGenderLabel(patient?.gender),
@@ -1212,10 +1212,11 @@ export class ResultsService {
    * Ideal para la pantalla a la que llegas desde "Acciones -> Resultados".
    */
   async getOrCreateDraftByServiceItem(serviceOrderItemId: number) {
-    const existing = await this.resultRepo.findOne({
-      where: { serviceOrderItemId, isActive: true },
-    });
-    if (existing) return existing;
+    const existing =
+      await this.findActiveResultByServiceItem(serviceOrderItemId);
+    if (existing) {
+      return existing;
+    }
 
     const item = await this.itemRepo.findOne({
       where: { id: serviceOrderItemId },
@@ -1353,16 +1354,6 @@ export class ResultsService {
     return this.buildServicePdfBufferWithOptions(service, sections, options);
   }
 
-  async findByServiceItem(serviceOrderItemId: number) {
-    const result = await this.resultRepo.findOne({
-      where: { serviceOrderItemId, isActive: true },
-    });
-    if (!result) {
-      throw new NotFoundException('Resultado de estudio no encontrado.');
-    }
-    return result;
-  }
-
   async create(dto: CreateStudyResultDto) {
     const service = await this.serviceRepo.findOne({
       where: { id: dto.serviceOrderId, isActive: true },
@@ -1385,27 +1376,16 @@ export class ResultsService {
       );
     }
 
-    const existing = await this.resultRepo.findOne({
-      where: { serviceOrderItemId: dto.serviceOrderItemId, isActive: true },
-    });
+    const existing = await this.findActiveResultByServiceItem(
+      dto.serviceOrderItemId,
+    );
     if (existing) {
       throw new BadRequestException(
         'Ya existen resultados registrados para este estudio. Utiliza la edición.',
       );
     }
 
-    const values: StudyResultValue[] = [];
-
-    for (const valueDto of dto.values) {
-      let detail: StudyDetail | undefined;
-      if (valueDto.studyDetailId) {
-        const foundDetail = await this.detailRepo.findOne({
-          where: { id: valueDto.studyDetailId },
-        });
-        detail = foundDetail || undefined;
-      }
-      values.push(this.mapValueDtoToEntity(valueDto, detail));
-    }
+    const values = await this.mapValueDtosToEntities(dto.values);
 
     const entity = this.resultRepo.create({
       serviceOrderId: dto.serviceOrderId,
@@ -1443,19 +1423,7 @@ export class ResultsService {
     // Si vienen values, borramos los actuales y creamos nuevos
     if (dto.values && dto.values.length > 0) {
       await this.valueRepo.delete({ studyResultId: id });
-
-      const newValues: StudyResultValue[] = [];
-      for (const valueDto of dto.values) {
-        let detail: StudyDetail | undefined;
-        if (valueDto.studyDetailId) {
-          const foundDetail = await this.detailRepo.findOne({
-            where: { id: valueDto.studyDetailId },
-          });
-          detail = foundDetail || undefined;
-        }
-        newValues.push(this.mapValueDtoToEntity(valueDto, detail));
-      }
-      result.values = newValues;
+      result.values = await this.mapValueDtosToEntities(dto.values);
     }
 
     if (dto.sampleAt) {

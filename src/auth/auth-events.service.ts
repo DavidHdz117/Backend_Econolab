@@ -2,13 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserLoginLog } from './entities/user-login-log.entity';
-import { User } from 'src/users/entities/user.entity';
+import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class AuthEventsService {
   constructor(
-    @InjectRepository(UserLoginLog) private logsRepo: Repository<UserLoginLog>,
-    @InjectRepository(User) private usersRepo: Repository<User>,
+    @InjectRepository(UserLoginLog)
+    private readonly logsRepo: Repository<UserLoginLog>,
   ) {}
 
   async logSuccess(user: User, ip?: string, ua?: string) {

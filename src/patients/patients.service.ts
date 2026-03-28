@@ -10,7 +10,7 @@ import { UpdatePatientStatusDto } from './dto/update-patient-status.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { Patient } from './entities/patient.entity';
 
-export type PatientStatusFilter = 'active' | 'inactive' | 'all';
+type PatientStatusFilter = 'active' | 'inactive' | 'all';
 
 const SQL_NORMALIZE_FROM =
   '\u00E1\u00E9\u00ED\u00F3\u00FA\u00E4\u00EB\u00EF\u00F6\u00FC\u00E0\u00E8\u00EC\u00F2\u00F9\u00C1\u00C9\u00CD\u00D3\u00DA\u00C4\u00CB\u00CF\u00D6\u00DC\u00C0\u00C8\u00CC\u00D2\u00D9\u00F1\u00D1';
@@ -72,9 +72,12 @@ export class PatientsService {
 
     const qb = this.repo
       .createQueryBuilder('patient')
-      .where(`${this.buildNormalizedSql('patient.documentType')} = :documentType`, {
-        documentType: normalizedType,
-      })
+      .where(
+        `${this.buildNormalizedSql('patient.documentType')} = :documentType`,
+        {
+          documentType: normalizedType,
+        },
+      )
       .andWhere(
         `${this.buildNormalizedSql('patient.documentNumber')} = :documentNumber`,
         { documentNumber: normalizedNumber },
@@ -92,7 +95,10 @@ export class PatientsService {
   }
 
   private async findPatientDuplicateByIdentity(
-    patient: Pick<Patient, 'firstName' | 'lastName' | 'middleName' | 'birthDate'>,
+    patient: Pick<
+      Patient,
+      'firstName' | 'lastName' | 'middleName' | 'birthDate'
+    >,
     excludeId?: number,
   ) {
     const normalizedFullName = this.normalizeSearchValue(

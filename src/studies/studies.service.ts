@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import { getLabDateToken } from '../common/utils/lab-date.util';
 import { Study, StudyStatus, StudyType } from './entities/study.entity';
 import { StudyDetail } from './entities/study-detail.entity';
 import { CreateStudyDto } from './dto/create-study.dto';
@@ -44,17 +45,7 @@ export class StudiesService {
   }
 
   private getLabDateToken(date = new Date()) {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: LAB_TIME_ZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const parts = formatter.formatToParts(date);
-    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
-    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
-    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
-    return `${year}${month}${day}`;
+    return getLabDateToken(LAB_TIME_ZONE, date);
   }
 
   private buildAutoStudyCode(
@@ -83,8 +74,8 @@ export class StudiesService {
   private isUniqueConstraintError(error: unknown) {
     return (
       error instanceof QueryFailedError &&
-      (error as QueryFailedError & { driverError?: { code?: string } }).driverError
-        ?.code === '23505'
+      (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code === '23505'
     );
   }
 
@@ -143,11 +134,64 @@ export class StudiesService {
     type: StudyType,
     excludeId?: number,
   ) {
-    const duplicate = await this.findDuplicateStudyByName(name, type, excludeId);
+    const duplicate = await this.findDuplicateStudyByName(
+      name,
+      type,
+      excludeId,
+    );
 
     if (duplicate) {
       throw new ConflictException(
         'Ya existe otro registro con el mismo nombre dentro de este tipo.',
+      );
+    }
+  }
+
+  private async findActiveStudyOrFail(id: number) {
+    const study = await this.studyRepo.findOne({
+      where: { id, isActive: true },
+    });
+
+    if (!study) {
+      throw new NotFoundException('Estudio no encontrado.');
+    }
+
+    return study;
+  }
+
+  private async findDetailOrFail(detailId: number, activeOnly = false) {
+    const detail = await this.detailRepo.findOne({
+      where: activeOnly ? { id: detailId, isActive: true } : { id: detailId },
+    });
+
+    if (!detail) {
+      throw new NotFoundException('Detalle de estudio no encontrado.');
+    }
+
+    return detail;
+  }
+
+  private ensureStudyAllowsDirectDetails(study: Study, message: string) {
+    if (study.type === StudyType.PACKAGE) {
+      throw new BadRequestException(message);
+    }
+  }
+
+  private async assertParentDetailExists(
+    studyId: number,
+    parentId?: number | null,
+  ) {
+    if (parentId === undefined || parentId === null) {
+      return;
+    }
+
+    const parent = await this.detailRepo.findOne({
+      where: { id: parentId, studyId, isActive: true },
+    });
+
+    if (!parent) {
+      throw new NotFoundException(
+        'El detalle padre no existe en este estudio.',
       );
     }
   }
@@ -342,13 +386,7 @@ export class StudiesService {
    * Obtener un estudio
    */
   async findOne(id: number) {
-    const study = await this.studyRepo.findOne({
-      where: { id, isActive: true },
-    });
-    if (!study) {
-      throw new NotFoundException('Estudio no encontrado.');
-    }
-    return study;
+    return this.findActiveStudyOrFail(id);
   }
 
   /**
@@ -475,23 +513,11 @@ export class StudiesService {
    */
   async createDetail(studyId: number, dto: CreateStudyDetailDto) {
     const study = await this.findOne(studyId);
-
-    if (study.type === StudyType.PACKAGE) {
-      throw new BadRequestException(
-        'Los paquetes no definen parametros directos. Agrega estudios al paquete.',
-      );
-    }
-
-    if (dto.parentId !== undefined && dto.parentId !== null) {
-      const parent = await this.detailRepo.findOne({
-        where: { id: dto.parentId, studyId, isActive: true },
-      });
-      if (!parent) {
-        throw new NotFoundException(
-          'El detalle padre no existe en este estudio.',
-        );
-      }
-    }
+    this.ensureStudyAllowsDirectDetails(
+      study,
+      'Los paquetes no definen parametros directos. Agrega estudios al paquete.',
+    );
+    await this.assertParentDetailExists(studyId, dto.parentId);
 
     const entity = this.detailRepo.create({
       ...dto,
@@ -505,42 +531,21 @@ export class StudiesService {
    * Actualizar detalle
    */
   async updateDetail(detailId: number, dto: UpdateStudyDetailDto) {
-    const detail = await this.detailRepo.findOne({
-      where: { id: detailId },
-    });
-    if (!detail) {
-      throw new NotFoundException('Detalle de estudio no encontrado.');
-    }
+    const detail = await this.findDetailOrFail(detailId);
 
     const study = await this.findOne(detail.studyId);
-    if (study.type === StudyType.PACKAGE) {
-      throw new BadRequestException(
-        'Los paquetes no administran parametros directos.',
-      );
-    }
-
-    if (dto.parentId !== undefined && dto.parentId !== null) {
-      const parent = await this.detailRepo.findOne({
-        where: { id: dto.parentId, studyId: detail.studyId, isActive: true },
-      });
-      if (!parent) {
-        throw new NotFoundException(
-          'El detalle padre no existe en este estudio.',
-        );
-      }
-    }
+    this.ensureStudyAllowsDirectDetails(
+      study,
+      'Los paquetes no administran parametros directos.',
+    );
+    await this.assertParentDetailExists(detail.studyId, dto.parentId);
 
     const merged = this.detailRepo.merge(detail, dto);
     return this.detailRepo.save(merged);
   }
 
   async updateDetailStatus(detailId: number, dto: UpdateStudyDetailStatusDto) {
-    const detail = await this.detailRepo.findOne({
-      where: { id: detailId },
-    });
-    if (!detail) {
-      throw new NotFoundException('Detalle de estudio no encontrado.');
-    }
+    const detail = await this.findDetailOrFail(detailId);
 
     if (detail.isActive === dto.isActive) {
       return detail;
@@ -554,12 +559,7 @@ export class StudiesService {
    * Baja lógica de un detalle
    */
   async softDeleteDetail(detailId: number) {
-    const detail = await this.detailRepo.findOne({
-      where: { id: detailId, isActive: true },
-    });
-    if (!detail) {
-      throw new NotFoundException('Detalle de estudio no encontrado.');
-    }
+    await this.findDetailOrFail(detailId, true);
     await this.detailRepo.update({ id: detailId }, { isActive: false });
     return { message: 'Detalle de estudio desactivado correctamente.' };
   }

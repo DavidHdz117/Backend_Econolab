@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Transporter } from 'nodemailer';
 import { MAILER_TRANSPORT } from './constants';
 
-export interface EmailPayload {
+interface EmailPayload {
   nombre: string;
   email: string;
   token: string;

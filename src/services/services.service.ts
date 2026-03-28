@@ -6,6 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import { getLabDateToken } from '../common/utils/lab-date.util';
+import { toFiniteNumber } from '../common/utils/number.util';
+import { buildPersonName, formatAgeLabel } from '../common/utils/person.util';
+import {
+  buildCompactSearchSqlExpression,
+  normalizeCompactSearchText,
+} from '../common/utils/search-normalization.util';
 import {
   ServiceOrder,
   ServiceOrderItem,
@@ -48,9 +55,7 @@ export class ServicesService {
   // --------- Helpers ---------
 
   private toNumber(value: unknown): number {
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return toFiniteNumber(value);
   }
 
   private getPriceByType(study: Study, type: ServiceItemPriceType): number {
@@ -69,15 +74,6 @@ export class ServicesService {
     }
   }
 
-  private formatDate(value?: Date) {
-    if (!value) return 'N/D';
-    try {
-      return new Date(value).toLocaleString('es-MX');
-    } catch {
-      return new Date(value).toISOString();
-    }
-  }
-
   private formatDateShort(value?: Date) {
     if (!value) return 'N/D';
     try {
@@ -85,16 +81,6 @@ export class ServicesService {
     } catch {
       return new Date(value).toISOString().slice(0, 10);
     }
-  }
-
-  private formatDocumentDate(value?: Date) {
-    if (!value) return 'N/D';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return 'N/D';
-
-    const pad = (segment: number) => String(segment).padStart(2, '0');
-
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 
   private formatReceiptDateTime(value?: Date) {
@@ -107,49 +93,31 @@ export class ServicesService {
     return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
-  private calcAge(birthDate?: string) {
-    return this.formatAgeLabel(birthDate);
-  }
-
   private formatMoney(value: unknown) {
     const amount = this.toNumber(value);
     return `$ ${amount.toFixed(2)}`;
   }
 
   private normalizeSearchText(value?: string | null) {
-    if (!value) return '';
-
-    return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9]+/g, '')
-      .toLowerCase()
-      .trim();
+    return normalizeCompactSearchText(value);
   }
 
   private sqlNormalizedExpression(expression: string) {
-    return `regexp_replace(translate(lower(coalesce(${expression}, '')), 'áàäâéèëêíìïîóòöôúùüûñ', 'aaaaeeeeiiiioooouuuun'), '[^a-z0-9]+', '', 'g')`;
+    return buildCompactSearchSqlExpression(expression);
   }
 
   private getLabDateToken(date = new Date()) {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: LAB_TIME_ZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const parts = formatter.formatToParts(date);
-    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
-    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
-    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
-    return `${year}${month}${day}`;
+    return getLabDateToken(LAB_TIME_ZONE, date);
   }
 
   private buildAutoServiceFolio(sequence: number, date = new Date()) {
     return `${AUTO_SERVICE_FOLIO_PREFIX}${this.getLabDateToken(date)}${String(sequence).padStart(AUTO_SEQUENCE_PAD, '0')}`;
   }
 
-  private extractAutoSequenceValue(value: string | null | undefined, dateToken: string) {
+  private extractAutoSequenceValue(
+    value: string | null | undefined,
+    dateToken: string,
+  ) {
     if (!value) return 0;
 
     const match = new RegExp(
@@ -163,8 +131,8 @@ export class ServicesService {
   private isUniqueConstraintError(error: unknown) {
     return (
       error instanceof QueryFailedError &&
-      (error as QueryFailedError & { driverError?: { code?: string } }).driverError
-        ?.code === '23505'
+      (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code === '23505'
     );
   }
 
@@ -193,6 +161,45 @@ export class ServicesService {
     return normalized ? normalized : null;
   }
 
+  private calculateTotals(subtotal: number, courtesyPercent: number) {
+    const discountAmount = subtotal * (courtesyPercent / 100);
+
+    return {
+      discountAmount,
+      totalAmount: subtotal - discountAmount,
+    };
+  }
+
+  private async findActivePatientOrFail(
+    patientId: number,
+    message: string,
+  ): Promise<Patient> {
+    const patient = await this.patientRepo.findOne({
+      where: { id: patientId, isActive: true },
+    });
+
+    if (!patient) {
+      throw new NotFoundException(message);
+    }
+
+    return patient;
+  }
+
+  private async findActiveDoctorOrFail(
+    doctorId: number,
+    message: string,
+  ): Promise<Doctor> {
+    const doctor = await this.doctorRepo.findOne({
+      where: { id: doctorId, isActive: true },
+    });
+
+    if (!doctor) {
+      throw new NotFoundException(message);
+    }
+
+    return doctor;
+  }
+
   async getSuggestedFolio() {
     return { folio: await this.getNextAutoServiceFolio() };
   }
@@ -213,18 +220,6 @@ export class ServicesService {
     }
   }
 
-  private buildPersonName(
-    firstName?: string | null,
-    lastName?: string | null,
-    middleName?: string | null,
-  ) {
-    return [firstName, lastName, middleName]
-      .filter((part): part is string => Boolean(part?.trim()))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
   private formatGenderLabel(gender?: string | null) {
     switch (gender) {
       case PatientGender.MALE:
@@ -239,34 +234,6 @@ export class ServicesService {
       default:
         return 'N/D';
     }
-  }
-
-  private sanitizePrintableText(value?: string | null) {
-    if (!value) return '';
-
-    return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^\x20-\x7E]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  private formatAgeLabel(birthDate?: string) {
-    if (!birthDate) return 'N/D';
-    const birth = new Date(birthDate);
-    if (Number.isNaN(birth.getTime())) return 'N/D';
-    const today = new Date();
-    let age = today.getFullYear() - birth.getFullYear();
-    const monthDelta = today.getMonth() - birth.getMonth();
-    if (
-      monthDelta < 0 ||
-      (monthDelta === 0 && today.getDate() < birth.getDate())
-    ) {
-      age -= 1;
-    }
-
-    return `${age} años`;
   }
 
   private truncateText(text: string, max = 40) {
@@ -299,10 +266,6 @@ export class ServicesService {
     }
   }
 
-  private truncate(text: string, max = 40) {
-    return this.truncateText(text, max);
-  }
-
   private sanitizeBarcodeToken(text: string, max = 10) {
     if (!text) return 'NA';
     const cleaned = text
@@ -325,7 +288,7 @@ export class ServicesService {
     const patient = service.patient;
     const barcodeText = this.buildReceiptBarcodeText(service);
     const barcodeBuffer = await this.buildBarcodeBuffer(barcodeText, 12, 2);
-    const patientName = this.buildPersonName(
+    const patientName = buildPersonName(
       patient?.firstName,
       patient?.lastName,
       patient?.middleName,
@@ -474,7 +437,7 @@ export class ServicesService {
           },
         )
         .text(
-          `${genderLabel} - ${this.formatAgeLabel(patient?.birthDate)}`,
+          `${genderLabel} - ${formatAgeLabel(patient?.birthDate)}`,
           barcodeBoxX,
           barcodeImageY + 53,
           {
@@ -512,7 +475,7 @@ export class ServicesService {
         },
       );
       doc.text(
-        `EDAD: ${this.formatAgeLabel(patient?.birthDate)}`,
+        `EDAD: ${formatAgeLabel(patient?.birthDate)}`,
         metaMiddleX,
         196,
         {
@@ -665,7 +628,7 @@ export class ServicesService {
     const patient = service.patient;
 
     const patientName =
-      this.buildPersonName(
+      buildPersonName(
         patient?.firstName,
         patient?.lastName,
         patient?.middleName,
@@ -753,7 +716,7 @@ export class ServicesService {
         });
       y += 10;
       doc.font('Helvetica');
-      doc.text(`EDAD: ${this.formatAgeLabel(patient?.birthDate)}`, 14, y, {
+      doc.text(`EDAD: ${formatAgeLabel(patient?.birthDate)}`, 14, y, {
         width: 100,
       });
       doc.text(`SEXO: ${genderLabel}`, 118, y, {
@@ -957,13 +920,13 @@ export class ServicesService {
         doc.rect(x, y, labelWidth, labelHeight).strokeColor('#dddddd').stroke();
 
         const patientName =
-          this.buildPersonName(
+          buildPersonName(
             patient?.firstName,
             patient?.lastName,
             patient?.middleName,
           ) || 'N/D';
         const gender = this.formatGenderLabel(patient?.gender);
-        const age = this.formatAgeLabel(patient?.birthDate);
+        const age = formatAgeLabel(patient?.birthDate);
 
         doc
           .font('Helvetica-Bold')
@@ -1186,28 +1149,24 @@ export class ServicesService {
   // --------- CRUD principal ---------
 
   async create(dto: CreateServiceDto) {
-    const patient = await this.patientRepo.findOne({
-      where: { id: dto.patientId, isActive: true },
-    });
-    if (!patient) {
-      throw new NotFoundException('El paciente no existe o está inactivo.');
-    }
+    await this.findActivePatientOrFail(
+      dto.patientId,
+      'El paciente no existe o está inactivo.',
+    );
 
-    let doctor: Doctor | null = null;
     if (dto.doctorId) {
-      doctor = await this.doctorRepo.findOne({
-        where: { id: dto.doctorId, isActive: true },
-      });
-      if (!doctor) {
-        throw new NotFoundException('El médico no existe o está inactivo.');
-      }
+      await this.findActiveDoctorOrFail(
+        dto.doctorId,
+        'El médico no existe o está inactivo.',
+      );
     }
 
     const preparedItems = await this.buildServiceItems(dto.items);
     const preparedCourtesyPercent = dto.courtesyPercent ?? 0;
-    const preparedDiscountAmount =
-      preparedItems.subtotal * (preparedCourtesyPercent / 100);
-    const preparedTotalAmount = preparedItems.subtotal - preparedDiscountAmount;
+    const {
+      discountAmount: preparedDiscountAmount,
+      totalAmount: preparedTotalAmount,
+    } = this.calculateTotals(preparedItems.subtotal, preparedCourtesyPercent);
 
     const manualFolio = this.normalizeServiceFolio(dto.folio);
     const useAutoFolio = dto.autoGenerateFolio ?? false;
@@ -1275,132 +1234,6 @@ export class ServicesService {
     throw new ConflictException(
       'No se pudo generar un folio automatico. Intenta de nuevo.',
     );
-
-    if (!dto.items || dto.items.length === 0) {
-      throw new BadRequestException(
-        'Debe agregar al menos un análisis al servicio.',
-      );
-    }
-
-    // Cargamos todos los estudios involucrados
-    const studyIds = dto.items.map((i) => i.studyId);
-    const studies = await this.studyRepo.findByIds(studyIds);
-    if (studies.length !== studyIds.length) {
-      throw new NotFoundException(
-        'Uno o más estudios no existen o están inactivos.',
-      );
-    }
-
-    const studyMap = new Map<number, Study>();
-    studies.forEach((s) => studyMap.set(s.id, s));
-
-    const items: ServiceOrderItem[] = [];
-
-    let subtotal = 0;
-
-    for (const itemDto of dto.items) {
-      const study = studyMap.get(itemDto.studyId)!;
-      const quantity = itemDto.quantity;
-      const itemDiscount = itemDto.discountPercent ?? 0;
-
-      if (study.type === StudyType.PACKAGE) {
-        const componentIds = study.packageStudyIds ?? [];
-        if (componentIds.length === 0) {
-          throw new BadRequestException(
-            `El paquete "${study.name}" no tiene estudios asociados.`,
-          );
-        }
-
-        const componentStudies = await this.studyRepo.findByIds(componentIds);
-        if (componentStudies.length !== componentIds.length) {
-          throw new NotFoundException(
-            `Uno o mas estudios del paquete "${study.name}" no existen.`,
-          );
-        }
-
-        const invalidComponent = componentStudies.find(
-          (component) =>
-            !component.isActive ||
-            component.status !== StudyStatus.ACTIVE ||
-            component.type !== StudyType.STUDY,
-        );
-        if (invalidComponent) {
-          throw new BadRequestException(
-            `El paquete "${study.name}" contiene estudios no disponibles.`,
-          );
-        }
-
-        const orderedComponents = componentIds
-          .map((componentId) =>
-            componentStudies.find((component) => component.id === componentId),
-          )
-          .filter((component): component is Study => Boolean(component));
-
-        const packageUnitPrice = this.getPriceByType(study, itemDto.priceType);
-        const packageLineBase = packageUnitPrice * quantity;
-        const packageLineSubtotal = packageLineBase * (1 - itemDiscount / 100);
-        subtotal += packageLineSubtotal;
-
-        orderedComponents.forEach((component, index) => {
-          const isPricedLine = index === 0;
-          const item = this.itemRepo.create({
-            studyId: component.id,
-            studyNameSnapshot: component.name,
-            sourcePackageId: study.id,
-            sourcePackageNameSnapshot: study.name,
-            priceType: itemDto.priceType,
-            unitPrice: isPricedLine ? packageUnitPrice : 0,
-            quantity,
-            discountPercent: isPricedLine ? itemDiscount : 0,
-            subtotalAmount: isPricedLine ? packageLineSubtotal : 0,
-          });
-
-          items.push(item);
-        });
-
-        continue;
-      }
-
-      const unitPrice = this.getPriceByType(study, itemDto.priceType);
-      const lineBase = unitPrice * quantity;
-      const lineSubtotal = lineBase * (1 - itemDiscount / 100);
-
-      subtotal += lineSubtotal;
-
-      const item = this.itemRepo.create({
-        studyId: study.id,
-        studyNameSnapshot: study.name,
-        priceType: itemDto.priceType,
-        unitPrice,
-        quantity,
-        discountPercent: itemDiscount,
-        subtotalAmount: lineSubtotal,
-      });
-
-      items.push(item);
-    }
-
-    const courtesyPercent = dto.courtesyPercent ?? 0;
-    const discountAmount = subtotal * (courtesyPercent / 100);
-    const total = subtotal - discountAmount;
-
-    const service = this.serviceRepo.create({
-      folio: dto.folio,
-      patientId: dto.patientId,
-      doctorId: dto.doctorId,
-      branchName: dto.branchName,
-      sampleAt: dto.sampleAt ? new Date(dto.sampleAt!) : undefined,
-      deliveryAt: dto.deliveryAt ? new Date(dto.deliveryAt!) : undefined,
-      status: dto.status ?? ServiceStatus.PENDING,
-      courtesyPercent,
-      subtotalAmount: subtotal,
-      discountAmount,
-      totalAmount: total,
-      notes: dto.notes,
-      items,
-    });
-
-    return this.serviceRepo.save(service);
   }
 
   async findOne(id: number) {
@@ -1504,29 +1337,18 @@ export class ServicesService {
   async update(id: number, dto: UpdateServiceDto) {
     const service = await this.findOne(id);
 
-    // Por simplicidad, aquí no recalculamos todos los ítems.
-    // Si quieres soportar edición completa (cambiar estudios, etc.)
-    // podemos hacer una función similar a create que reemplace items.
     if (dto.patientId && dto.patientId !== service.patientId) {
-      const patient = await this.patientRepo.findOne({
-        where: { id: dto.patientId, isActive: true },
-      });
-      if (!patient) {
-        throw new NotFoundException(
-          'El nuevo paciente no existe o está inactivo.',
-        );
-      }
+      await this.findActivePatientOrFail(
+        dto.patientId,
+        'El nuevo paciente no existe o está inactivo.',
+      );
     }
 
     if (dto.doctorId && dto.doctorId !== service.doctorId) {
-      const doctor = await this.doctorRepo.findOne({
-        where: { id: dto.doctorId, isActive: true },
-      });
-      if (!doctor) {
-        throw new NotFoundException(
-          'El nuevo médico no existe o está inactivo.',
-        );
-      }
+      await this.findActiveDoctorOrFail(
+        dto.doctorId,
+        'El nuevo médico no existe o está inactivo.',
+      );
     }
 
     let subtotal = this.toNumber(service.subtotalAmount);
@@ -1543,8 +1365,8 @@ export class ServicesService {
       dto.courtesyPercent !== undefined
         ? dto.courtesyPercent
         : this.toNumber(service.courtesyPercent);
-    const nextDiscountAmount = subtotal * (nextCourtesyPercent / 100);
-    const nextTotalAmount = subtotal - nextDiscountAmount;
+    const { discountAmount: nextDiscountAmount, totalAmount: nextTotalAmount } =
+      this.calculateTotals(subtotal, nextCourtesyPercent);
 
     const manualFolio = this.normalizeServiceFolio(dto.folio);
     const useAutoFolio = dto.autoGenerateFolio ?? false;
@@ -1592,7 +1414,9 @@ export class ServicesService {
         return await saveService(manualFolio ?? service.folio);
       } catch (error) {
         if (this.isUniqueConstraintError(error)) {
-          throw new ConflictException('Ya existe otro servicio con este folio.');
+          throw new ConflictException(
+            'Ya existe otro servicio con este folio.',
+          );
         }
 
         throw error;
@@ -1614,32 +1438,6 @@ export class ServicesService {
     throw new ConflictException(
       'No se pudo generar un folio automatico. Intenta de nuevo.',
     );
-
-    const merged = this.serviceRepo.merge(service, {
-      folio: dto.folio ?? service.folio,
-      patientId: dto.patientId ?? service.patientId,
-      doctorId: dto.doctorId ?? service.doctorId,
-      branchName: dto.branchName ?? service.branchName,
-      sampleAt: dto.sampleAt ? new Date(dto.sampleAt!) : service.sampleAt,
-      deliveryAt: dto.deliveryAt
-        ? new Date(dto.deliveryAt!)
-        : service.deliveryAt,
-      status: dto.status ?? service.status,
-      courtesyPercent: dto.courtesyPercent ?? service.courtesyPercent,
-      notes: dto.notes ?? service.notes,
-      // Totales: podrías recalcular aquí si cambias cortesía
-    });
-
-    // Si solo cambió cortesía, ajustamos totales sin tocar los ítems
-    if (dto.courtesyPercent !== undefined) {
-      const subtotal = this.toNumber(merged.subtotalAmount);
-      const courtesy = this.toNumber(merged.courtesyPercent);
-      const discount = subtotal * (courtesy / 100);
-      merged.discountAmount = discount;
-      merged.totalAmount = subtotal - discount;
-    }
-
-    return this.serviceRepo.save(merged);
   }
 
   async updateStatus(id: number, dto: UpdateServiceStatusDto) {

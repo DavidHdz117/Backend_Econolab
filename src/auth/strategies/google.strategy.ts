@@ -10,7 +10,7 @@ export class GoogleStrategy extends PassportStrategy(
   'google',
 ) {
   constructor(
-    private readonly cfg: ConfigService,
+    cfg: ConfigService,
     private readonly usersService: UsersService,
   ) {
     super({
@@ -21,7 +21,11 @@ export class GoogleStrategy extends PassportStrategy(
     } as any);
   }
 
-  async validate(accessToken: string, refreshToken: string, profile: Profile) {
+  async validate(
+    _accessToken: string,
+    _refreshToken: string,
+    profile: Profile,
+  ) {
     const email = profile.emails?.[0]?.value;
     const nombre = profile.displayName;
     const googleAvatarUrl = profile.photos?.[0]?.value ?? null;

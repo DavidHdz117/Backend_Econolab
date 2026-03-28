@@ -2,7 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserLoginLog } from '../auth/entities/user-login-log.entity';
+import {
+  getLabDateInput,
+  getLocalDateExpression,
+  getMonthKey,
+} from '../common/utils/lab-date.util';
 import { Role } from '../common/enums/roles.enum';
+import { toFiniteNumber } from '../common/utils/number.util';
+import { buildPersonName } from '../common/utils/person.util';
+import { summarizeServiceStudies } from '../common/utils/service-order-summary.util';
 import { Doctor } from '../doctors/entities/doctor.entity';
 import { DailyClosing } from '../history/entities/daily-closing.entity';
 import { Patient } from '../patients/entities/patient.entity';
@@ -39,39 +47,19 @@ export class DashboardService {
   ) {}
 
   private toNumber(value: unknown): number {
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return toFiniteNumber(value);
   }
 
   private getLabDateInput(value = new Date()) {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: this.labTimeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const parts = formatter.formatToParts(value);
-    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
-    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
-    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
-    return `${year}-${month}-${day}`;
+    return getLabDateInput(this.labTimeZone, value);
   }
 
   private getLocalDateExpression(expression: string) {
-    return `date(timezone('${this.labTimeZone}', ${expression}))`;
+    return getLocalDateExpression(this.labTimeZone, expression);
   }
 
   private getMonthKey(value: Date) {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: this.labTimeZone,
-      year: 'numeric',
-      month: '2-digit',
-    });
-    const parts = formatter.formatToParts(value);
-    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
-    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
-    return `${year}-${month}`;
+    return getMonthKey(this.labTimeZone, value);
   }
 
   private parseDateInput(value?: string): string | null {
@@ -172,26 +160,7 @@ export class DashboardService {
   }
 
   private summarizeStudies(service: ServiceOrder) {
-    const packageGroups = new Map<string, string[]>();
-    const standaloneStudies: string[] = [];
-
-    for (const item of service.items ?? []) {
-      if (item.sourcePackageNameSnapshot) {
-        const current = packageGroups.get(item.sourcePackageNameSnapshot) ?? [];
-        current.push(item.studyNameSnapshot);
-        packageGroups.set(item.sourcePackageNameSnapshot, current);
-        continue;
-      }
-
-      standaloneStudies.push(item.studyNameSnapshot);
-    }
-
-    return [
-      ...[...packageGroups.entries()].map(
-        ([packageName, studies]) => `${packageName}: ${studies.join(', ')}`,
-      ),
-      ...standaloneStudies,
-    ].join(' | ');
+    return summarizeServiceStudies(service);
   }
 
   private buildStudyRanking(services: ServiceOrder[]) {
@@ -245,10 +214,10 @@ export class DashboardService {
       return 'Sin medico';
     }
 
-    return [doctor.firstName, doctor.lastName, doctor.middleName ?? '']
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return (
+      buildPersonName(doctor.firstName, doctor.lastName, doctor.middleName) ||
+      'Sin medico'
+    );
   }
 
   private buildDoctorPerformance(services: ServiceOrder[]) {
@@ -460,7 +429,9 @@ export class DashboardService {
     );
     const studyRanking = this.buildStudyRanking(createdServicesInRange);
     const branchSummary = this.buildBranchSummary(completedServicesInRange);
-    const doctorPerformance = this.buildDoctorPerformance(createdServicesInRange);
+    const doctorPerformance = this.buildDoctorPerformance(
+      createdServicesInRange,
+    );
     const trend = this.buildTrend(
       completedServicesInRange,
       rangeConfig.trendGrouping,

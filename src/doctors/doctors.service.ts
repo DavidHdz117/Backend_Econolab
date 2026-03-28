@@ -10,7 +10,7 @@ import { UpdateDoctorStatusDto } from './dto/update-doctor-status.dto';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { Doctor } from './entities/doctor.entity';
 
-export type DoctorStatusFilter = 'active' | 'inactive' | 'all';
+type DoctorStatusFilter = 'active' | 'inactive' | 'all';
 
 const SQL_NORMALIZE_FROM =
   '\u00E1\u00E9\u00ED\u00F3\u00FA\u00E4\u00EB\u00EF\u00F6\u00FC\u00E0\u00E8\u00EC\u00F2\u00F9\u00C1\u00C9\u00CD\u00D3\u00DA\u00C4\u00CB\u00CF\u00D6\u00DC\u00C0\u00C8\u00CC\u00D2\u00D9\u00F1\u00D1';
@@ -167,7 +167,9 @@ export class DoctorsService {
     const normalizedFullName = this.normalizeSearchValue(
       `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`,
     );
-    const normalizedSpecialty = this.normalizeSearchValue(doctor.specialty ?? '');
+    const normalizedSpecialty = this.normalizeSearchValue(
+      doctor.specialty ?? '',
+    );
 
     if (!normalizedFullName || !normalizedSpecialty) {
       return null;
@@ -267,10 +269,8 @@ export class DoctorsService {
       !this.normalizeEmailValue(doctor.email) &&
       !this.normalizePhoneValue(doctor.phone)
     ) {
-      const specialtyDuplicate = await this.findDoctorDuplicateByNameAndSpecialty(
-        doctor,
-        excludeId,
-      );
+      const specialtyDuplicate =
+        await this.findDoctorDuplicateByNameAndSpecialty(doctor, excludeId);
 
       if (specialtyDuplicate) {
         throw new ConflictException(
