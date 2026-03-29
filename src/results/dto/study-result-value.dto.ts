@@ -1,7 +1,20 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class StudyResultValueDto {
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'El publicId del valor debe ser un UUID valido.',
+  })
+  publicId?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'El identificador del detalle debe ser un número entero.' })

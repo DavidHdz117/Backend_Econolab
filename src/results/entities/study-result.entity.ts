@@ -14,12 +14,18 @@ import {
   ServiceOrderItem,
 } from '../../services/entities/service-order.entity';
 import { StudyDetail } from '../../studies/entities/study-detail.entity';
+import { SyncMetadataEntity } from '../../common/entities/sync-metadata.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableTimestampColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 @Entity('study_results')
 @Index('idx_study_results_service_order', ['serviceOrderId'])
 @Index('idx_study_results_service_item', ['serviceOrderItemId'])
 @Index('idx_study_results_active', ['isActive'])
-export class StudyResult {
+export class StudyResult extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -37,10 +43,10 @@ export class StudyResult {
   @Column({ name: 'service_order_item_id' })
   serviceOrderItemId: number;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }))
   sampleAt?: Date; // por si quieres copiar la fecha de muestra
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }))
   reportedAt?: Date; // fecha en que se cerró el resultado
 
   @Column({ length: 150, nullable: true })
@@ -61,15 +67,15 @@ export class StudyResult {
   })
   values: StudyResultValue[];
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn(getPortableCreateDateColumnOptions())
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions())
   updatedAt: Date;
 }
 
 @Entity('study_result_values')
-export class StudyResultValue {
+export class StudyResultValue extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -108,9 +114,9 @@ export class StudyResultValue {
   @Column({ default: true })
   visible: boolean; // checkbox VISIBLE en la pantalla
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn(getPortableCreateDateColumnOptions())
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions())
   updatedAt: Date;
 }

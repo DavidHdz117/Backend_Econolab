@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { getLabDateToken } from '../common/utils/lab-date.util';
@@ -29,9 +30,11 @@ import {
   StudyStatus,
   StudyType,
 } from '../studies/entities/study.entity';
+import { labConfig, type LabRuntimeConfig } from '../config/lab.config';
+import { DatabaseDialectService } from '../database/database-dialect.service';
+import { RuntimePolicyService } from '../runtime/runtime-policy.service';
 import PDFDocument = require('pdfkit');
 import * as fs from 'fs';
-import * as path from 'path';
 import * as bwipjs from 'bwip-js';
 
 const LAB_TIME_ZONE = 'America/Mexico_City';
@@ -51,12 +54,29 @@ export class ServicesService {
     private readonly doctorRepo: Repository<Doctor>,
     @InjectRepository(Study)
     private readonly studyRepo: Repository<Study>,
+    private readonly configService: ConfigService,
+    private readonly databaseDialect: DatabaseDialectService,
+    private readonly runtimePolicy: RuntimePolicyService,
   ) {}
 
   // --------- Helpers ---------
 
   private toNumber(value: unknown): number {
     return toFiniteNumber(value);
+  }
+
+  private getLabBillingDocumentConfig() {
+    const lab = this.configService.getOrThrow<LabRuntimeConfig>('lab');
+
+    return {
+      name: lab.name,
+      subtitle: lab.subtitle,
+      address: lab.address,
+      addressLine2: lab.addressLine2,
+      phone: lab.phone,
+      email: lab.email,
+      logoPath: lab.logoPath ?? '',
+    };
   }
 
   private getPriceByType(study: Study, type: ServiceItemPriceType): number {
@@ -104,6 +124,7 @@ export class ServicesService {
   }
 
   private sqlNormalizedExpression(expression: string) {
+    return this.databaseDialect.buildCompactSearchExpression(expression);
     return buildCompactSearchSqlExpression(expression);
   }
 
@@ -145,8 +166,8 @@ export class ServicesService {
       .createQueryBuilder('service')
       .where('service.folio LIKE :prefix', { prefix })
       .andWhere(
-        `to_char(timezone(:timeZone, service.createdAt), 'YYYYMMDD') = :dateToken`,
-        { timeZone: LAB_TIME_ZONE, dateToken },
+        `${this.databaseDialect.getDateTokenExpression(LAB_TIME_ZONE, 'service.createdAt')} = :dateToken`,
+        { dateToken },
       )
       .orderBy('service.folio', 'DESC')
       .getOne();
@@ -277,16 +298,14 @@ export class ServicesService {
   }
 
   private async buildReceiptPdfBuffer(service: ServiceOrder): Promise<Buffer> {
-    const labName = process.env.LAB_NAME ?? 'ECONOLAB';
-    const labSubtitle =
-      process.env.LAB_SUBTITLE ?? 'LABORATORIO DE ANALISIS CLINICOS';
-    const labAddress = process.env.LAB_ADDRESS ?? '';
-    const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
-    const labPhone = process.env.LAB_PHONE ?? '';
-    const labEmail = process.env.LAB_EMAIL ?? '';
-    const logoPath =
-      process.env.LAB_LOGO_PATH ??
-      path.join(process.cwd(), 'src', 'public', 'logoeco.png');
+    const lab = this.getLabBillingDocumentConfig();
+    const labName = lab.name;
+    const labSubtitle = lab.subtitle;
+    const labAddress = lab.address;
+    const labAddress2 = lab.addressLine2;
+    const labPhone = lab.phone;
+    const labEmail = lab.email;
+    const logoPath = lab.logoPath;
 
     const patient = service.patient;
     const barcodeText = this.buildReceiptBarcodeText(service);
@@ -621,15 +640,13 @@ export class ServicesService {
   }
 
   private async buildTicketPdfBuffer(service: ServiceOrder): Promise<Buffer> {
-    const labName = process.env.LAB_NAME ?? 'ECONOLAB';
-    const labSubtitle =
-      process.env.LAB_SUBTITLE ?? 'LABORATORIO DE ANALISIS CLINICOS';
-    const labAddress = process.env.LAB_ADDRESS ?? '';
-    const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
-    const labPhone = process.env.LAB_PHONE ?? '';
-    const logoPath =
-      process.env.LAB_LOGO_PATH ??
-      path.join(process.cwd(), 'src', 'public', 'logoeco.png');
+    const lab = this.getLabBillingDocumentConfig();
+    const labName = lab.name;
+    const labSubtitle = lab.subtitle;
+    const labAddress = lab.address;
+    const labAddress2 = lab.addressLine2;
+    const labPhone = lab.phone;
+    const logoPath = lab.logoPath;
     const patient = service.patient;
 
     const patientName =
@@ -845,7 +862,7 @@ export class ServicesService {
   }
 
   private async buildLabelsPdfBuffer(service: ServiceOrder): Promise<Buffer> {
-    const labName = process.env.LAB_NAME ?? 'ECONOLAB';
+    const { name: labName } = this.getLabBillingDocumentConfig();
     const patient = service.patient;
     const sampleAt = service.sampleAt ?? service.createdAt;
 
@@ -1137,6 +1154,7 @@ export class ServicesService {
 
       items.push(
         this.itemRepo.create({
+          publicId: itemDto.publicId ?? null,
           studyId: study.id,
           studyNameSnapshot: study.name,
           priceType: itemDto.priceType,
@@ -1149,6 +1167,87 @@ export class ServicesService {
     }
 
     return { items, subtotal };
+  }
+
+  private getServiceItemIdentityKey(
+    item: Pick<
+      ServiceOrderItem,
+      'studyId' | 'sourcePackageId' | 'priceType' | 'unitPrice'
+    >,
+  ) {
+    const packageScope = item.sourcePackageId
+      ? `pkg:${item.sourcePackageId}`
+      : 'single';
+    const packageRole = item.sourcePackageId
+      ? this.toNumber(item.unitPrice) > 0
+        ? 'priced'
+        : 'shadow'
+      : 'single';
+
+    return `${packageScope}:${item.studyId}:${item.priceType}:${packageRole}`;
+  }
+
+  private reconcileServiceItems(
+    existingItems: ServiceOrderItem[],
+    preparedItems: ServiceOrderItem[],
+  ) {
+    const existingByPublicId = new Map(
+      existingItems
+        .filter((item) => Boolean(item.publicId))
+        .map((item) => [item.publicId!, item] as const),
+    );
+    const existingBuckets = new Map<string, ServiceOrderItem[]>();
+    const usedItemIds = new Set<number>();
+
+    for (const item of [...existingItems].sort((a, b) => a.id - b.id)) {
+      const key = this.getServiceItemIdentityKey(item);
+      const bucket = existingBuckets.get(key) ?? [];
+      bucket.push(item);
+      existingBuckets.set(key, bucket);
+    }
+
+    const takeNextBucketMatch = (preparedItem: ServiceOrderItem) => {
+      const key = this.getServiceItemIdentityKey(preparedItem);
+      const bucket = existingBuckets.get(key) ?? [];
+
+      while (bucket.length > 0) {
+        const candidate = bucket.shift()!;
+        if (!usedItemIds.has(candidate.id)) {
+          return candidate;
+        }
+      }
+
+      return undefined;
+    };
+
+    const items = preparedItems.map((preparedItem) => {
+      let matched =
+        (preparedItem.publicId
+          ? existingByPublicId.get(preparedItem.publicId)
+          : undefined) ?? takeNextBucketMatch(preparedItem);
+
+      if (matched && usedItemIds.has(matched.id)) {
+        matched = takeNextBucketMatch(preparedItem);
+      }
+
+      if (!matched) {
+        return preparedItem;
+      }
+
+      usedItemIds.add(matched.id);
+
+      return this.itemRepo.merge(matched, {
+        ...preparedItem,
+        publicId: matched.publicId ?? preparedItem.publicId ?? null,
+        deletedAt: null,
+      });
+    });
+
+    const removedItemIds = existingItems
+      .filter((item) => !usedItemIds.has(item.id))
+      .map((item) => item.id);
+
+    return { items, removedItemIds };
   }
 
   // --------- CRUD principal ---------
@@ -1358,12 +1457,17 @@ export class ServicesService {
 
     let subtotal = this.toNumber(service.subtotalAmount);
     let nextItems = service.items;
+    let removedItemIds: number[] = [];
 
     if (dto.items) {
       const preparedItems = await this.buildServiceItems(dto.items);
       subtotal = preparedItems.subtotal;
-      nextItems = preparedItems.items;
-      await this.itemRepo.delete({ serviceOrderId: id });
+      const reconciliation = this.reconcileServiceItems(
+        service.items ?? [],
+        preparedItems.items,
+      );
+      nextItems = reconciliation.items;
+      removedItemIds = reconciliation.removedItemIds;
     }
 
     const nextCourtesyPercent =
@@ -1387,31 +1491,48 @@ export class ServicesService {
     }
 
     const saveService = async (folio: string) => {
-      const nextService = this.serviceRepo.merge(service, {
-        folio,
-        patientId: dto.patientId ?? service.patientId,
-        doctorId: dto.doctorId ?? service.doctorId,
-        branchName: dto.branchName ?? service.branchName,
-        sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : service.sampleAt,
-        deliveryAt: dto.deliveryAt
-          ? new Date(dto.deliveryAt)
-          : service.deliveryAt,
-        status: dto.status ?? service.status,
-        completedAt:
-          dto.status === ServiceStatus.COMPLETED
-            ? (service.completedAt ?? new Date())
-            : dto.status
-              ? undefined
-              : service.completedAt,
-        courtesyPercent: nextCourtesyPercent,
-        subtotalAmount: subtotal,
-        discountAmount: nextDiscountAmount,
-        totalAmount: nextTotalAmount,
-        notes: dto.notes ?? service.notes,
-        items: nextItems,
-      });
+      const savedId = await this.serviceRepo.manager.transaction(
+        async (manager) => {
+          const transactionalServiceRepo = manager.getRepository(ServiceOrder);
+          const transactionalItemRepo = manager.getRepository(ServiceOrderItem);
+          const nextService = transactionalServiceRepo.merge(service, {
+            folio,
+            patientId: dto.patientId ?? service.patientId,
+            doctorId: dto.doctorId ?? service.doctorId,
+            branchName: dto.branchName ?? service.branchName,
+            sampleAt: dto.sampleAt ? new Date(dto.sampleAt) : service.sampleAt,
+            deliveryAt: dto.deliveryAt
+              ? new Date(dto.deliveryAt)
+              : service.deliveryAt,
+            status: dto.status ?? service.status,
+            completedAt:
+              dto.status === ServiceStatus.COMPLETED
+                ? (service.completedAt ?? new Date())
+                : dto.status
+                  ? undefined
+                  : service.completedAt,
+            courtesyPercent: nextCourtesyPercent,
+            subtotalAmount: subtotal,
+            discountAmount: nextDiscountAmount,
+            totalAmount: nextTotalAmount,
+            notes: dto.notes ?? service.notes,
+            items: nextItems,
+          });
 
-      return this.serviceRepo.save(nextService);
+          const saved = await transactionalServiceRepo.save(nextService);
+
+          if (removedItemIds.length > 0) {
+            const removedItems = service.items.filter((item) =>
+              removedItemIds.includes(item.id),
+            );
+            await transactionalItemRepo.remove(removedItems);
+          }
+
+          return saved.id;
+        },
+      );
+
+      return this.findOne(savedId);
     };
 
     if (!useAutoFolio) {
@@ -1458,15 +1579,15 @@ export class ServicesService {
   async softDelete(id: number) {
     const service = await this.findOne(id);
     service.isActive = false;
+    service.deletedAt = new Date();
     await this.serviceRepo.save(service);
     return { message: 'Servicio desactivado correctamente.' };
   }
 
   async hardDelete(id: number) {
-    const result = await this.serviceRepo.delete({ id });
-    if (result.affected === 0) {
-      throw new NotFoundException('Servicio no encontrado.');
-    }
+    this.runtimePolicy.assertHardDeleteAllowed('servicios');
+    const service = await this.findOne(id);
+    await this.serviceRepo.remove(service);
     return { message: 'Servicio eliminado definitivamente.' };
   }
 

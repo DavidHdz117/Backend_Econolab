@@ -7,10 +7,15 @@ import {
   Index,
   Unique,
 } from 'typeorm';
+import { SyncMetadataEntity } from '../../common/entities/sync-metadata.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 @Entity({ name: 'doctors' })
 @Unique(['licenseNumber'])
-export class Doctor {
+export class Doctor extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -44,9 +49,9 @@ export class Doctor {
   @Column({ default: true })
   isActive: boolean;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn(getPortableCreateDateColumnOptions())
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions())
   updatedAt: Date;
 }

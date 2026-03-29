@@ -16,11 +16,13 @@ import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { GoogleAuthAvailabilityGuard } from './guards/google-auth-availability.guard';
 import { User } from '../users/entities/user.entity';
 import {
   AuthenticatedUser,
   RequestWithUser,
 } from '../common/types/auth-request.type';
+import { IntegrationPolicyService } from '../runtime/integration-policy.service';
 
 @UsePipes(new ValidationPipe({ transform: true }))
 @Controller('auth')
@@ -28,6 +30,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly config: ConfigService,
+    private readonly integrationPolicy: IntegrationPolicyService,
   ) {}
 
   @Post('login')
@@ -39,6 +42,10 @@ export class AuthController {
 
   @Get('google')
   googleLogin(@Res() res: Response) {
+    this.integrationPolicy.assertGoogleAuthEnabled(
+      'El inicio de sesion con Google',
+    );
+
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     const redirectUri = this.config.get<string>('GOOGLE_CALLBACK_URL');
 
@@ -60,14 +67,15 @@ export class AuthController {
   }
 
   @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleAuthAvailabilityGuard, AuthGuard('google'))
   async googleCallback(
     @Req() req: RequestWithUser<User>,
     @Res() res: Response,
   ) {
     const ua = req.get('user-agent') ?? undefined;
     const ip = req.ip || undefined;
-    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
     try {
       const result = await this.auth.loginWithOAuthUser(req.user, ip, ua);

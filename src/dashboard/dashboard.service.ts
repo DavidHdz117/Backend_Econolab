@@ -20,6 +20,7 @@ import {
 } from '../services/entities/service-order.entity';
 import { Study, StudyStatus } from '../studies/entities/study.entity';
 import { User } from '../users/entities/user.entity';
+import { DatabaseDialectService } from '../database/database-dialect.service';
 
 type DashboardRange = 'today' | '7d' | '30d' | '90d' | 'year' | 'custom';
 type DashboardRoleFilter = 'all' | 'admin' | 'recepcionista';
@@ -44,6 +45,7 @@ export class DashboardService {
     private readonly patientRepo: Repository<Patient>,
     @InjectRepository(Study)
     private readonly studyRepo: Repository<Study>,
+    private readonly databaseDialect: DatabaseDialectService,
   ) {}
 
   private toNumber(value: unknown): number {
@@ -55,6 +57,10 @@ export class DashboardService {
   }
 
   private getLocalDateExpression(expression: string) {
+    return this.databaseDialect.getLocalDateExpression(
+      this.labTimeZone,
+      expression,
+    );
     return getLocalDateExpression(this.labTimeZone, expression);
   }
 

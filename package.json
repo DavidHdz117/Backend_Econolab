@@ -18,9 +18,18 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "migration:run": "typeorm-ts-node-commonjs -d src/database/typeorm.datasource.ts migration:run",
-    "migration:revert": "typeorm-ts-node-commonjs -d src/database/typeorm.datasource.ts migration:revert",
-    "migration:show": "typeorm-ts-node-commonjs -d src/database/typeorm.datasource.ts migration:show"
+    "migration:run": "node -r tsconfig-paths/register ./node_modules/typeorm/cli-ts-node-commonjs.js -d src/database/typeorm.datasource.ts migration:run",
+    "migration:revert": "node -r tsconfig-paths/register ./node_modules/typeorm/cli-ts-node-commonjs.js -d src/database/typeorm.datasource.ts migration:revert",
+    "migration:show": "node -r tsconfig-paths/register ./node_modules/typeorm/cli-ts-node-commonjs.js -d src/database/typeorm.datasource.ts migration:show",
+    "db:sqlite:init": "ts-node -r tsconfig-paths/register scripts/sqlite-init.ts",
+    "db:sqlite:smoke": "ts-node -r tsconfig-paths/register scripts/sqlite-smoke.ts",
+    "runtime:bootstrap:smoke": "ts-node -r tsconfig-paths/register scripts/runtime-bootstrap-smoke.ts",
+    "runtime:bootstrap:prod:smoke": "node scripts/runtime-bootstrap-prod-smoke.js",
+    "runtime:modes:smoke": "ts-node -r tsconfig-paths/register scripts/runtime-modes-smoke.ts",
+    "sync:machine-auth:smoke": "ts-node -r tsconfig-paths/register scripts/sync-machine-auth-smoke.ts",
+    "db:sync-state:smoke": "ts-node -r tsconfig-paths/register scripts/sync-state-smoke.ts",
+    "db:sync-outbox:smoke": "ts-node -r tsconfig-paths/register scripts/sync-outbox-smoke.ts",
+    "db:sync-inbound:smoke": "ts-node -r tsconfig-paths/register scripts/sync-inbound-smoke.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -49,6 +58,7 @@
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sqlite3": "^5.1.7",
     "typeorm": "^0.3.25"
   },
   "devDependencies": {

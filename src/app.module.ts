@@ -14,12 +14,34 @@ import { ServicesModule } from './services/services.module';
 import { ResultsModule } from './results/results.module';
 import { HistoryModule } from './history/history.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { appConfig } from './config/app.config';
+import { databaseConfig } from './config/database.config';
+import { integrationsConfig } from './config/integrations.config';
+import { labConfig } from './config/lab.config';
+import { storageConfig } from './config/storage.config';
+import { syncConfig } from './config/sync.config';
+import { DatabaseModule } from './database/database.module';
+import { RuntimeModule } from './runtime/runtime.module';
+import { StorageModule } from './storage/storage.module';
+import { SyncModule } from './sync/sync.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      load: [
+        appConfig,
+        databaseConfig,
+        integrationsConfig,
+        labConfig,
+        storageConfig,
+        syncConfig,
+      ],
     }),
+    RuntimeModule,
+    StorageModule,
+    DatabaseModule,
+    SyncModule,
     TypeOrmModule.forRootAsync({
       useFactory: typeOrmConfig,
       inject: [ConfigService],

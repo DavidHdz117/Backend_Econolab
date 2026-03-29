@@ -9,6 +9,12 @@ import {
 } from 'typeorm';
 import { Role } from 'src/common/enums/roles.enum';
 import { UserSession } from 'src/auth/entities/user-session.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableEnumColumnOptions,
+  getPortableTimestampColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 @Entity()
 export class User {
@@ -34,7 +40,7 @@ export class User {
   @Column({ type: 'boolean', default: false })
   confirmed: boolean;
 
-  @Column({ type: 'enum', enum: Role, default: Role.Unassigned })
+  @Column(getPortableEnumColumnOptions(Role, Role.Unassigned))
   rol: Role;
 
   @Column({ type: 'text', nullable: true })
@@ -46,24 +52,24 @@ export class User {
   @Column({ type: 'varchar', length: 1000, nullable: true })
   googleAvatarUrl: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }, 'timestamp'))
   resetTokenExpiresAt: Date | null;
 
   @Column({ type: 'int', default: 0 })
   resetRequestCount: number;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }, 'timestamp'))
   resetRequestWindowStart: Date | null;
 
   @Column({ type: 'int', default: 0 })
   failedLoginAttempts: number;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }, 'timestamp'))
   lockUntil: Date | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn(getPortableCreateDateColumnOptions({}, 'timestamp'))
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions({}, 'timestamp'))
   updatedAt: Date;
 }

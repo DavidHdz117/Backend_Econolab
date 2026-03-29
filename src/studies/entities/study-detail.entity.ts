@@ -8,6 +8,12 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Study } from './study.entity';
+import { SyncMetadataEntity } from '../../common/entities/sync-metadata.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableEnumColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 export enum StudyDetailType {
   CATEGORY = 'category', // categoría (ej. FORMULA ROJA)
@@ -15,7 +21,7 @@ export enum StudyDetailType {
 }
 
 @Entity({ name: 'study_details' })
-export class StudyDetail {
+export class StudyDetail extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -34,7 +40,7 @@ export class StudyDetail {
   @Column({ name: 'parent_id', nullable: true })
   parentId?: number | null;
 
-  @Column({ type: 'enum', enum: StudyDetailType })
+  @Column(getPortableEnumColumnOptions(StudyDetailType))
   dataType: StudyDetailType; // CATEGORY o PARAMETER
 
   @Column({ length: 150 })
@@ -52,9 +58,9 @@ export class StudyDetail {
   @Column({ default: true })
   isActive: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn(getPortableCreateDateColumnOptions({}, 'timestamp'))
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions({}, 'timestamp'))
   updatedAt: Date;
 }

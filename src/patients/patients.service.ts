@@ -9,18 +9,16 @@ import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientStatusDto } from './dto/update-patient-status.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { Patient } from './entities/patient.entity';
+import { DatabaseDialectService } from '../database/database-dialect.service';
 
 type PatientStatusFilter = 'active' | 'inactive' | 'all';
-
-const SQL_NORMALIZE_FROM =
-  '\u00E1\u00E9\u00ED\u00F3\u00FA\u00E4\u00EB\u00EF\u00F6\u00FC\u00E0\u00E8\u00EC\u00F2\u00F9\u00C1\u00C9\u00CD\u00D3\u00DA\u00C4\u00CB\u00CF\u00D6\u00DC\u00C0\u00C8\u00CC\u00D2\u00D9\u00F1\u00D1';
-const SQL_NORMALIZE_TO = 'aeiouaeiouaeiouAEIOUAEIOUAEIOUnN';
 
 @Injectable()
 export class PatientsService {
   constructor(
     @InjectRepository(Patient)
     private readonly repo: Repository<Patient>,
+    private readonly databaseDialect: DatabaseDialectService,
   ) {}
 
   private normalizeStatusFilter(status?: string): PatientStatusFilter {
@@ -40,7 +38,7 @@ export class PatientsService {
   }
 
   private buildNormalizedSql(field: string) {
-    return `regexp_replace(lower(translate(coalesce(${field}, ''), '${SQL_NORMALIZE_FROM}', '${SQL_NORMALIZE_TO}')), '[^a-z0-9]+', '', 'g')`;
+    return this.databaseDialect.buildCompactSearchExpression(field);
   }
 
   private buildFullNameSql(alias: string) {
@@ -269,8 +267,10 @@ export class PatientsService {
   }
 
   async softDelete(id: number) {
-    await this.findByIdOrFail(id);
-    await this.repo.update({ id }, { isActive: false });
+    const patient = await this.findByIdOrFail(id);
+    patient.isActive = false;
+    patient.deletedAt = new Date();
+    await this.repo.save(patient);
     return { message: 'Paciente desactivado correctamente.' };
   }
 
@@ -282,6 +282,7 @@ export class PatientsService {
     }
 
     patient.isActive = dto.isActive;
+    patient.deletedAt = dto.isActive ? null : new Date();
     return this.repo.save(patient);
   }
 

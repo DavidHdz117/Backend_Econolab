@@ -9,18 +9,18 @@ import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { UpdateDoctorStatusDto } from './dto/update-doctor-status.dto';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { Doctor } from './entities/doctor.entity';
+import { DatabaseDialectService } from '../database/database-dialect.service';
+import { RuntimePolicyService } from '../runtime/runtime-policy.service';
 
 type DoctorStatusFilter = 'active' | 'inactive' | 'all';
-
-const SQL_NORMALIZE_FROM =
-  '\u00E1\u00E9\u00ED\u00F3\u00FA\u00E4\u00EB\u00EF\u00F6\u00FC\u00E0\u00E8\u00EC\u00F2\u00F9\u00C1\u00C9\u00CD\u00D3\u00DA\u00C4\u00CB\u00CF\u00D6\u00DC\u00C0\u00C8\u00CC\u00D2\u00D9\u00F1\u00D1';
-const SQL_NORMALIZE_TO = 'aeiouaeiouaeiouAEIOUAEIOUAEIOUnN';
 
 @Injectable()
 export class DoctorsService {
   constructor(
     @InjectRepository(Doctor)
     private readonly repo: Repository<Doctor>,
+    private readonly databaseDialect: DatabaseDialectService,
+    private readonly runtimePolicy: RuntimePolicyService,
   ) {}
 
   private normalizeStatusFilter(status?: string): DoctorStatusFilter {
@@ -48,15 +48,15 @@ export class DoctorsService {
   }
 
   private buildNormalizedSql(field: string) {
-    return `regexp_replace(translate(lower(coalesce(${field}, '')), '${SQL_NORMALIZE_FROM}', '${SQL_NORMALIZE_TO}'), '[^a-z0-9]+', '', 'g')`;
+    return this.databaseDialect.buildCompactSearchExpression(field);
   }
 
   private buildDigitsOnlySql(field: string) {
-    return `regexp_replace(coalesce(${field}, ''), '[^0-9]+', '', 'g')`;
+    return this.databaseDialect.buildDigitsOnlyExpression(field);
   }
 
   private buildLowerTrimSql(field: string) {
-    return `lower(trim(coalesce(${field}, '')))`;
+    return this.databaseDialect.buildLowerTrimExpression(field);
   }
 
   private buildFullNameSql(alias: string) {
@@ -394,8 +394,10 @@ export class DoctorsService {
   }
 
   async softDelete(id: number) {
-    await this.findByIdOrFail(id);
-    await this.repo.update({ id }, { isActive: false });
+    const doctor = await this.findByIdOrFail(id);
+    doctor.isActive = false;
+    doctor.deletedAt = new Date();
+    await this.repo.save(doctor);
     return { message: 'Medico desactivado correctamente.' };
   }
 
@@ -407,15 +409,14 @@ export class DoctorsService {
     }
 
     doctor.isActive = dto.isActive;
+    doctor.deletedAt = dto.isActive ? null : new Date();
     return this.repo.save(doctor);
   }
 
   async hardDelete(id: number) {
-    const result = await this.repo.delete({ id });
-
-    if (result.affected === 0) {
-      throw new NotFoundException('Medico no encontrado.');
-    }
+    this.runtimePolicy.assertHardDeleteAllowed('medicos');
+    const doctor = await this.findByIdOrFail(id);
+    await this.repo.remove(doctor);
 
     return { message: 'Medico eliminado definitivamente de la base de datos.' };
   }

@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuthEventsService } from './auth-events.service';
+import { GoogleAuthAvailabilityGuard } from './guards/google-auth-availability.guard';
 import { GoogleStrategy } from './strategies/google.strategy';
 
 import { UsersModule } from 'src/users/users.module';
@@ -23,7 +24,13 @@ import { GmailOauthController } from './gmail-oauth.controller';
     UsersModule,
   ],
   controllers: [AuthController, GmailOauthController],
-  providers: [AuthService, JwtStrategy, AuthEventsService, GoogleStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    AuthEventsService,
+    GoogleStrategy,
+    GoogleAuthAvailabilityGuard,
+  ],
   exports: [AuthService, AuthEventsService],
 })
 export class AuthModule {}

@@ -3,11 +3,11 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import PDFDocument = require('pdfkit');
 import { Repository } from 'typeorm';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as QRCode from 'qrcode';
 import { buildPersonName, formatAgeLabel } from '../common/utils/person.util';
 import {
@@ -22,6 +22,13 @@ import { StudyResult, StudyResultValue } from './entities/study-result.entity';
 import { CreateStudyResultDto } from './dto/create-study-result.dto';
 import { UpdateStudyResultDto } from './dto/update-study-result.dto';
 import { StudyResultValueDto } from './dto/study-result-value.dto';
+import {
+  buildLabResultUrl,
+  labConfig,
+  type LabRuntimeConfig,
+} from '../config/lab.config';
+import { RuntimePolicyService } from '../runtime/runtime-policy.service';
+import { normalizeCompactSearchText } from '../common/utils/search-normalization.util';
 
 type ResultPdfCategoryLayout = 'continuous' | 'page-per-category';
 type ResultPdfStudyLayout = 'continuous' | 'page-per-study';
@@ -66,9 +73,34 @@ export class ResultsService {
     private readonly itemRepo: Repository<ServiceOrderItem>,
     @InjectRepository(StudyDetail)
     private readonly detailRepo: Repository<StudyDetail>,
+    private readonly configService: ConfigService,
+    private readonly runtimePolicy: RuntimePolicyService,
   ) {}
 
   // ---------- Helpers ----------
+
+  private getLabRuntimeConfig() {
+    return this.configService.getOrThrow<LabRuntimeConfig>('lab');
+  }
+
+  private getLabResultsDocumentConfig() {
+    const lab = this.getLabRuntimeConfig();
+
+    return {
+      name: lab.name,
+      subtitle: lab.subtitle,
+      address: lab.address || 'Direccion no configurada',
+      addressLine2: lab.addressLine2,
+      phone: lab.phone || 'Telefono no configurado',
+      email: lab.email || 'Correo no configurado',
+      schedule: lab.schedule || 'Horario no configurado',
+      sampleSchedule: lab.sampleSchedule || 'Horario de toma no configurado',
+      logoPath: lab.logoPath ?? '',
+      signaturePath: lab.signaturePath ?? '',
+      responsibleName: lab.responsibleName,
+      responsibleLicense: lab.responsibleLicense,
+    };
+  }
 
   private mapValueDtoToEntity(
     dto: StudyResultValueDto,
@@ -82,6 +114,7 @@ export class ResultsService {
       : dto.referenceValue;
 
     return this.valueRepo.create({
+      publicId: dto.publicId ?? null,
       studyDetailId: dto.studyDetailId ?? studyDetail?.id,
       label: baseLabel,
       unit: baseUnit,
@@ -114,6 +147,79 @@ export class ResultsService {
     );
   }
 
+  private getResultValueIdentityKey(
+    value: Pick<StudyResultValue, 'studyDetailId' | 'label'>,
+  ) {
+    if (value.studyDetailId) {
+      return `detail:${value.studyDetailId}`;
+    }
+
+    return `label:${normalizeCompactSearchText(value.label)}`;
+  }
+
+  private reconcileResultValues(
+    existingValues: StudyResultValue[],
+    preparedValues: StudyResultValue[],
+  ) {
+    const existingByPublicId = new Map(
+      existingValues
+        .filter((value) => Boolean(value.publicId))
+        .map((value) => [value.publicId!, value] as const),
+    );
+    const existingBuckets = new Map<string, StudyResultValue[]>();
+    const usedValueIds = new Set<number>();
+
+    for (const value of [...existingValues].sort((a, b) => a.id - b.id)) {
+      const key = this.getResultValueIdentityKey(value);
+      const bucket = existingBuckets.get(key) ?? [];
+      bucket.push(value);
+      existingBuckets.set(key, bucket);
+    }
+
+    const takeNextBucketMatch = (preparedValue: StudyResultValue) => {
+      const key = this.getResultValueIdentityKey(preparedValue);
+      const bucket = existingBuckets.get(key) ?? [];
+
+      while (bucket.length > 0) {
+        const candidate = bucket.shift()!;
+        if (!usedValueIds.has(candidate.id)) {
+          return candidate;
+        }
+      }
+
+      return undefined;
+    };
+
+    const values = preparedValues.map((preparedValue) => {
+      let matched =
+        (preparedValue.publicId
+          ? existingByPublicId.get(preparedValue.publicId)
+          : undefined) ?? takeNextBucketMatch(preparedValue);
+
+      if (matched && usedValueIds.has(matched.id)) {
+        matched = takeNextBucketMatch(preparedValue);
+      }
+
+      if (!matched) {
+        return preparedValue;
+      }
+
+      usedValueIds.add(matched.id);
+
+      return this.valueRepo.merge(matched, {
+        ...preparedValue,
+        publicId: matched.publicId ?? preparedValue.publicId ?? null,
+        deletedAt: null,
+      });
+    });
+
+    const removedValueIds = existingValues
+      .filter((value) => !usedValueIds.has(value.id))
+      .map((value) => value.id);
+
+    return { values, removedValueIds };
+  }
+
   private findActiveResultByServiceItem(serviceOrderItemId: number) {
     return this.resultRepo.findOne({
       where: { serviceOrderItemId, isActive: true },
@@ -121,19 +227,8 @@ export class ResultsService {
   }
 
   private async buildQrBuffer(result: StudyResult): Promise<Buffer | null> {
-    const template = process.env.LAB_QR_URL ?? '';
-    const base = process.env.LAB_QR_BASE_URL ?? '';
-    const path = process.env.LAB_QR_PATH ?? `/results/${result.id}`;
-
-    let url = template;
-    if (!url && base) {
-      url = `${base.replace(/\/$/, '')}${path}`;
-    }
-    if (!url) return null;
-
-    const finalUrl = url.includes('{id}')
-      ? url.replace('{id}', String(result.id))
-      : url;
+    const finalUrl = buildLabResultUrl(this.getLabRuntimeConfig(), result.id);
+    if (!finalUrl) return null;
 
     try {
       return await QRCode.toBuffer(finalUrl, {
@@ -367,23 +462,19 @@ export class ResultsService {
       );
       doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-      const labName = process.env.LAB_NAME ?? 'ECONOLAB';
-      const labSubtitle =
-        process.env.LAB_SUBTITLE ?? 'LABORATORIO DE ANALISIS CLINICOS';
-      const labAddress = process.env.LAB_ADDRESS ?? 'Direccion no configurada';
-      const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
-      const labPhone = process.env.LAB_PHONE ?? 'Telefono no configurado';
-      const labEmail = process.env.LAB_EMAIL ?? 'Correo no configurado';
-      const labSchedule = process.env.LAB_SCHEDULE ?? 'Horario no configurado';
-      const labSampleSchedule =
-        process.env.LAB_SAMPLE_SCHEDULE ?? 'Horario de toma no configurado';
-      const logoPath =
-        process.env.LAB_LOGO_PATH ??
-        path.join(process.cwd(), 'src', 'public', 'logoeco.png');
-      const signaturePath = process.env.LAB_SIGNATURE_PATH ?? '';
-      const responsibleName =
-        process.env.LAB_RESPONSIBLE_NAME ?? 'Responsable Sanitario';
-      const responsibleLicense = process.env.LAB_RESPONSIBLE_LICENSE ?? '';
+      const lab = this.getLabResultsDocumentConfig();
+      const labName = lab.name;
+      const labSubtitle = lab.subtitle;
+      const labAddress = lab.address;
+      const labAddress2 = lab.addressLine2;
+      const labPhone = lab.phone;
+      const labEmail = lab.email;
+      const labSchedule = lab.schedule;
+      const labSampleSchedule = lab.sampleSchedule;
+      const logoPath = lab.logoPath;
+      const signaturePath = lab.signaturePath;
+      const responsibleName = lab.responsibleName;
+      const responsibleLicense = lab.responsibleLicense;
 
       const service = result.serviceOrder;
       const patient = service?.patient;
@@ -778,23 +869,19 @@ export class ResultsService {
       );
       doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-      const labName = process.env.LAB_NAME ?? 'ECONOLAB';
-      const labSubtitle =
-        process.env.LAB_SUBTITLE ?? 'LABORATORIO DE ANALISIS CLINICOS';
-      const labAddress = process.env.LAB_ADDRESS ?? 'Direccion no configurada';
-      const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
-      const labPhone = process.env.LAB_PHONE ?? 'Telefono no configurado';
-      const labEmail = process.env.LAB_EMAIL ?? 'Correo no configurado';
-      const labSchedule = process.env.LAB_SCHEDULE ?? 'Horario no configurado';
-      const labSampleSchedule =
-        process.env.LAB_SAMPLE_SCHEDULE ?? 'Horario de toma no configurado';
-      const logoPath =
-        process.env.LAB_LOGO_PATH ??
-        path.join(process.cwd(), 'src', 'public', 'logoeco.png');
-      const signaturePath = process.env.LAB_SIGNATURE_PATH ?? '';
-      const responsibleName =
-        process.env.LAB_RESPONSIBLE_NAME ?? 'Responsable Sanitario';
-      const responsibleLicense = process.env.LAB_RESPONSIBLE_LICENSE ?? '';
+      const lab = this.getLabResultsDocumentConfig();
+      const labName = lab.name;
+      const labSubtitle = lab.subtitle;
+      const labAddress = lab.address;
+      const labAddress2 = lab.addressLine2;
+      const labPhone = lab.phone;
+      const labEmail = lab.email;
+      const labSchedule = lab.schedule;
+      const labSampleSchedule = lab.sampleSchedule;
+      const logoPath = lab.logoPath;
+      const signaturePath = lab.signaturePath;
+      const responsibleName = lab.responsibleName;
+      const responsibleLicense = lab.responsibleLicense;
 
       const patient = service.patient;
       const doctor = service.doctor;
@@ -1409,6 +1496,7 @@ export class ResultsService {
 
   async update(id: number, dto: UpdateStudyResultDto) {
     const result = await this.findOne(id);
+    let removedValueIds: number[] = [];
 
     if (dto.serviceOrderId && dto.serviceOrderId !== result.serviceOrderId) {
       throw new BadRequestException(
@@ -1427,8 +1515,13 @@ export class ResultsService {
 
     // Si vienen values, borramos los actuales y creamos nuevos
     if (dto.values && dto.values.length > 0) {
-      await this.valueRepo.delete({ studyResultId: id });
-      result.values = await this.mapValueDtosToEntities(dto.values);
+      const preparedValues = await this.mapValueDtosToEntities(dto.values);
+      const reconciliation = this.reconcileResultValues(
+        result.values ?? [],
+        preparedValues,
+      );
+      result.values = reconciliation.values;
+      removedValueIds = reconciliation.removedValueIds;
     }
 
     if (dto.sampleAt) {
@@ -1448,21 +1541,38 @@ export class ResultsService {
       result.isDraft = dto.isDraft;
     }
 
-    return this.resultRepo.save(result);
+    const savedId = await this.resultRepo.manager.transaction(
+      async (manager) => {
+        const transactionalResultRepo = manager.getRepository(StudyResult);
+        const transactionalValueRepo = manager.getRepository(StudyResultValue);
+        const saved = await transactionalResultRepo.save(result);
+
+        if (removedValueIds.length > 0) {
+          const removedValues = result.values.filter((value) =>
+            removedValueIds.includes(value.id),
+          );
+          await transactionalValueRepo.remove(removedValues);
+        }
+
+        return saved.id;
+      },
+    );
+
+    return this.findOne(savedId);
   }
 
   async softDelete(id: number) {
     const result = await this.findOne(id);
     result.isActive = false;
+    result.deletedAt = new Date();
     await this.resultRepo.save(result);
     return { message: 'Resultado desactivado correctamente.' };
   }
 
   async hardDelete(id: number) {
-    const res = await this.resultRepo.delete({ id });
-    if (res.affected === 0) {
-      throw new NotFoundException('Resultado de estudio no encontrado.');
-    }
+    this.runtimePolicy.assertHardDeleteAllowed('resultados');
+    const result = await this.findOne(id);
+    await this.resultRepo.remove(result);
     return { message: 'Resultado eliminado definitivamente.' };
   }
 }

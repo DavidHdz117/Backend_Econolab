@@ -9,6 +9,6 @@ describe('AppController', () => {
   });
 
   it('returns the backend welcome message', () => {
-    expect(appController.getHello()).toBe('Backend Sistema ECONOLAB');
+    expect(appController.getHello()).toBe('Backend Sistema 50TA');
   });
 });

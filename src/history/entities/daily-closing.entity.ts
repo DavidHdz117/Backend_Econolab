@@ -6,6 +6,12 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableJsonColumnOptions,
+  getPortableTimestampColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 export type DailyClosingServiceSnapshot = {
   serviceId: number;
@@ -51,10 +57,10 @@ export class DailyClosing {
   @Column({ type: 'date' })
   closingDate: string;
 
-  @Column({ type: 'timestamptz' })
+  @Column(getPortableTimestampColumnOptions())
   periodStart: Date;
 
-  @Column({ type: 'timestamptz' })
+  @Column(getPortableTimestampColumnOptions())
   periodEnd: Date;
 
   @Column({ type: 'int', default: 0 })
@@ -78,21 +84,21 @@ export class DailyClosing {
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   averageTicket: number;
 
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column(getPortableJsonColumnOptions())
   branchBreakdown: DailyClosingBranchSnapshot[];
 
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column(getPortableJsonColumnOptions())
   topStudies: DailyClosingStudySnapshot[];
 
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column(getPortableJsonColumnOptions())
   hourlyBreakdown: DailyClosingHourSnapshot[];
 
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column(getPortableJsonColumnOptions())
   servicesSnapshot: DailyClosingServiceSnapshot[];
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn(getPortableCreateDateColumnOptions())
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions())
   updatedAt: Date;
 }

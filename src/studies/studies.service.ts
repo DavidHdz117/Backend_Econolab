@@ -14,6 +14,8 @@ import { UpdateStudyDto } from './dto/update-study.dto';
 import { CreateStudyDetailDto } from './dto/create-study-detail.dto';
 import { UpdateStudyDetailDto } from './dto/update-study-detail.dto';
 import { UpdateStudyDetailStatusDto } from './dto/update-study-detail-status.dto';
+import { DatabaseDialectService } from '../database/database-dialect.service';
+import { RuntimePolicyService } from '../runtime/runtime-policy.service';
 
 const LAB_TIME_ZONE = 'America/Mexico_City';
 const AUTO_SEQUENCE_PAD = 4;
@@ -30,6 +32,8 @@ export class StudiesService {
     private readonly studyRepo: Repository<Study>,
     @InjectRepository(StudyDetail)
     private readonly detailRepo: Repository<StudyDetail>,
+    private readonly databaseDialect: DatabaseDialectService,
+    private readonly runtimePolicy: RuntimePolicyService,
   ) {}
 
   private normalizeSearchValue(value: string) {
@@ -41,6 +45,7 @@ export class StudiesService {
   }
 
   private buildNormalizedSql(field: string) {
+    return this.databaseDialect.buildCompactSearchExpression(field);
     return `regexp_replace(lower(translate(coalesce(${field}, ''), 'áéíóúäëïöüàèìòùÁÉÍÓÚÄËÏÖÜÀÈÌÒÙñÑ', 'aeiouaeiouaeiouAEIOUAEIOUAEIOUnN')), '[^a-z0-9]+', '', 'g')`;
   }
 
@@ -87,8 +92,8 @@ export class StudiesService {
       .createQueryBuilder('study')
       .where('study.code LIKE :prefix', { prefix })
       .andWhere(
-        `to_char(timezone(:timeZone, study.createdAt), 'YYYYMMDD') = :dateToken`,
-        { timeZone: LAB_TIME_ZONE, dateToken },
+        `${this.databaseDialect.getDateTokenExpression(LAB_TIME_ZONE, 'study.createdAt')} = :dateToken`,
+        { dateToken },
       )
       .orderBy('study.code', 'DESC')
       .getOne();
@@ -468,8 +473,10 @@ export class StudiesService {
    * Baja lógica de estudio
    */
   async softDelete(id: number) {
-    await this.findOne(id);
-    await this.studyRepo.update({ id }, { isActive: false });
+    const study = await this.findOne(id);
+    study.isActive = false;
+    study.deletedAt = new Date();
+    await this.studyRepo.save(study);
     return { message: 'Estudio desactivado correctamente.' };
   }
 
@@ -477,11 +484,9 @@ export class StudiesService {
    * Eliminación física
    */
   async hardDelete(id: number) {
-    const result = await this.studyRepo.delete({ id });
-
-    if (result.affected === 0) {
-      throw new NotFoundException('Estudio no encontrado.');
-    }
+    this.runtimePolicy.assertHardDeleteAllowed('estudios');
+    const study = await this.findOne(id);
+    await this.studyRepo.remove(study);
 
     return {
       message: 'Estudio eliminado definitivamente de la base de datos.',
@@ -552,6 +557,7 @@ export class StudiesService {
     }
 
     detail.isActive = dto.isActive;
+    detail.deletedAt = dto.isActive ? null : new Date();
     return this.detailRepo.save(detail);
   }
 
@@ -559,8 +565,10 @@ export class StudiesService {
    * Baja lógica de un detalle
    */
   async softDeleteDetail(detailId: number) {
-    await this.findDetailOrFail(detailId, true);
-    await this.detailRepo.update({ id: detailId }, { isActive: false });
+    const detail = await this.findDetailOrFail(detailId, true);
+    detail.isActive = false;
+    detail.deletedAt = new Date();
+    await this.detailRepo.save(detail);
     return { message: 'Detalle de estudio desactivado correctamente.' };
   }
 
@@ -568,11 +576,11 @@ export class StudiesService {
    * Eliminación física de un detalle
    */
   async hardDeleteDetail(detailId: number) {
-    const result = await this.detailRepo.delete({ id: detailId });
-
-    if (result.affected === 0) {
-      throw new NotFoundException('Detalle de estudio no encontrado.');
-    }
+    this.runtimePolicy.assertHardDeleteAllowed(
+      'detalles de estudio',
+    );
+    const detail = await this.findDetailOrFail(detailId, true);
+    await this.detailRepo.remove(detail);
 
     return { message: 'Detalle de estudio eliminado definitivamente.' };
   }

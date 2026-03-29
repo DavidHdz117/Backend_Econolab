@@ -40,6 +40,10 @@ export class UsersController {
 
   @Post('register')
   async register(@Body() dto: CreateUserDto) {
+    this.mailService.assertDeliveryAvailable(
+      'El registro con confirmacion por correo',
+    );
+
     const user = await this.usersService.register(dto);
 
     await this.mailService.sendConfirmationEmail({

@@ -1,3 +1,5 @@
+import type { SupportedDatabaseType } from '../../config/database.config';
+
 function getDatePartsInTimeZone(
   timeZone: string,
   value: Date,
@@ -48,6 +50,26 @@ export function getMonthKey(
   return `${year}-${month}`;
 }
 
-export function getLocalDateExpression(timeZone: string, expression: string) {
+export function getLocalDateExpression(
+  timeZone: string,
+  expression: string,
+  databaseType: SupportedDatabaseType = 'postgres',
+) {
+  if (databaseType === 'sqlite') {
+    return `date(${expression})`;
+  }
+
   return `date(timezone('${timeZone}', ${expression}))`;
+}
+
+export function getLocalDateTokenExpression(
+  timeZone: string,
+  expression: string,
+  databaseType: SupportedDatabaseType = 'postgres',
+) {
+  if (databaseType === 'sqlite') {
+    return `replace(date(${expression}), '-', '')`;
+  }
+
+  return `to_char(timezone('${timeZone}', ${expression}), 'YYYYMMDD')`;
 }

@@ -11,6 +11,13 @@ import {
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
 import { Doctor } from '../../doctors/entities/doctor.entity';
+import { SyncMetadataEntity } from '../../common/entities/sync-metadata.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableEnumColumnOptions,
+  getPortableTimestampColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 export enum ServiceStatus {
   PENDING = 'pending', // PENDIENTE
@@ -25,7 +32,7 @@ export enum ServiceStatus {
 @Index('idx_service_order_doctor', ['doctorId'])
 @Index('idx_service_order_status', ['status'])
 @Index('idx_service_order_created_at', ['createdAt'])
-export class ServiceOrder {
+export class ServiceOrder extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -52,21 +59,17 @@ export class ServiceOrder {
   branchName?: string;
 
   // Fecha/hora de toma de muestra
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }))
   sampleAt?: Date;
 
   // Fecha/hora de entrega comprometida
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }))
   deliveryAt?: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column(getPortableTimestampColumnOptions({ nullable: true }))
   completedAt?: Date;
 
-  @Column({
-    type: 'enum',
-    enum: ServiceStatus,
-    default: ServiceStatus.PENDING,
-  })
+  @Column(getPortableEnumColumnOptions(ServiceStatus, ServiceStatus.PENDING))
   status: ServiceStatus;
 
   // Totales
@@ -94,16 +97,16 @@ export class ServiceOrder {
   })
   items: ServiceOrderItem[];
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn(getPortableCreateDateColumnOptions())
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions())
   updatedAt: Date;
 }
 
 // Necesitamos la clase aquí por el circular import
 @Entity({ name: 'service_order_items' })
-export class ServiceOrderItem {
+export class ServiceOrderItem extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 

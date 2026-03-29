@@ -19,11 +19,15 @@ import { UpdateServiceStatusDto } from './dto/update-service-status.dto';
 import { ServiceStatus } from './entities/service-order.entity';
 import { Response } from 'express';
 import { sendInlinePdf } from '../common/utils/pdf-response.util';
+import { DocumentArtifactService } from '../storage/document-artifact.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('services')
 export class ServicesController {
-  constructor(private readonly servicesService: ServicesService) {}
+  constructor(
+    private readonly servicesService: ServicesService,
+    private readonly documentArtifacts: DocumentArtifactService,
+  ) {}
 
   @Post()
   async create(@Body() dto: CreateServiceDto) {
@@ -71,7 +75,11 @@ export class ServicesController {
     @Res() res: Response,
   ) {
     const buffer = await this.servicesService.generateReceiptPdf(id);
-    sendInlinePdf(res, `recibo-${id}.pdf`, buffer);
+    sendInlinePdf(
+      res,
+      this.documentArtifacts.buildPdfFilename('recibo', id),
+      buffer,
+    );
   }
 
   @Get(':id/labels')
@@ -80,7 +88,11 @@ export class ServicesController {
     @Res() res: Response,
   ) {
     const buffer = await this.servicesService.generateTubeLabelsPdf(id);
-    sendInlinePdf(res, `etiquetas-${id}.pdf`, buffer);
+    sendInlinePdf(
+      res,
+      this.documentArtifacts.buildPdfFilename('etiquetas', id),
+      buffer,
+    );
   }
 
   @Get(':id/ticket')
@@ -89,7 +101,11 @@ export class ServicesController {
     @Res() res: Response,
   ) {
     const buffer = await this.servicesService.generateTicketPdf(id);
-    sendInlinePdf(res, `ticket-${id}.pdf`, buffer);
+    sendInlinePdf(
+      res,
+      this.documentArtifacts.buildPdfFilename('ticket', id),
+      buffer,
+    );
   }
 
   @Get('folio/:folio')

@@ -1,12 +1,22 @@
-import { ConfigService } from '@nestjs/config';
 import { createTransport, Transporter } from 'nodemailer';
+import { IntegrationPolicyService } from '../runtime/integration-policy.service';
 
-export const mailerConfig = (config: ConfigService): Transporter => {
+export const mailerConfig = (
+  integrationPolicy: IntegrationPolicyService,
+): Transporter => {
+  const { user, pass } = integrationPolicy.mailCredentials;
+
+  if (!integrationPolicy.mailEnabled || !user || !pass) {
+    return createTransport({
+      jsonTransport: true,
+    });
+  }
+
   return createTransport({
     service: 'gmail',
     auth: {
-      user: config.get<string>('GMAIL_USER'),
-      pass: config.get<string>('GMAIL_PASS'),
+      user,
+      pass,
     },
   });
 };

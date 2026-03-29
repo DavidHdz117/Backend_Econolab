@@ -14,13 +14,18 @@ import { Response } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/roles.enum';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { sendAttachmentFile } from '../common/utils/file-response.util';
+import { DocumentArtifactService } from '../storage/document-artifact.service';
 import { HistoryService } from './history.service';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles(Role.Admin)
 @Controller('history')
 export class HistoryController {
-  constructor(private readonly historyService: HistoryService) {}
+  constructor(
+    private readonly historyService: HistoryService,
+    private readonly documentArtifacts: DocumentArtifactService,
+  ) {}
 
   @Get('dashboard')
   getDashboard(
@@ -58,11 +63,11 @@ export class HistoryController {
   @Get('daily-cuts/:id/export')
   async exportDailyCut(@Param('id') id: string, @Res() res: Response) {
     const buffer = await this.historyService.exportDailyCutCsv(+id);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="corte-dia-${id}.csv"`,
+    sendAttachmentFile(
+      res,
+      this.documentArtifacts.buildCsvFilename('corte-dia', id),
+      'text/csv; charset=utf-8',
+      buffer,
     );
-    res.send(buffer);
   }
 }

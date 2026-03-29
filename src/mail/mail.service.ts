@@ -4,8 +4,8 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Transporter } from 'nodemailer';
+import { IntegrationPolicyService } from '../runtime/integration-policy.service';
 import { MAILER_TRANSPORT } from './constants';
 
 interface EmailPayload {
@@ -19,13 +19,24 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
 
   constructor(
-    private readonly config: ConfigService,
+    private readonly integrationPolicy: IntegrationPolicyService,
     @Inject(MAILER_TRANSPORT)
     private readonly transporter: Transporter,
   ) {}
 
+  assertDeliveryAvailable(featureLabel = 'El envio de correo') {
+    this.integrationPolicy.assertMailEnabled(featureLabel);
+  }
+
+  private getFrontendUrlOrThrow(featureLabel: string) {
+    this.integrationPolicy.assertFrontendUrlConfigured(featureLabel);
+    return this.integrationPolicy.frontendUrl!;
+  }
+
   private async sendEmail(to: string, subject: string, html: string) {
-    const fromEmail = this.config.get<string>('GMAIL_USER');
+    this.assertDeliveryAvailable();
+
+    const fromEmail = this.integrationPolicy.mailCredentials.user;
     const fromName = 'Econolab Huejutla';
 
     if (!fromEmail) {
@@ -48,13 +59,17 @@ export class MailService {
   }
 
   async sendConfirmationEmail({ nombre, email, token }: EmailPayload) {
+    const frontendUrl = this.getFrontendUrlOrThrow(
+      'La confirmacion de cuenta por correo',
+    );
+
     await this.sendEmail(
       email,
       'Econolab Huejutla - Confirma tu cuenta',
       `
         <p>Hola ${nombre}, has creado tu cuenta en Econolab Huejutla, ya casi esta lista.</p>
         <p>Visita el siguiente enlace:</p>
-        <a href="${this.config.get('FRONTEND_URL')}/auth/confirm-account">
+        <a href="${frontendUrl}/auth/confirm-account">
           Confirmar cuenta
         </a>
         <p>e ingresa el codigo: <b>${token}</b></p>
@@ -63,13 +78,17 @@ export class MailService {
   }
 
   async sendPasswordResetToken({ nombre, email, token }: EmailPayload) {
+    const frontendUrl = this.getFrontendUrlOrThrow(
+      'La recuperacion de contrasena por correo',
+    );
+
     await this.sendEmail(
       email,
       'Econolab Huejutla - Restablece tu contrasena',
       `
         <p>Hola ${nombre}, has solicitado restablecer tu contrasena.</p>
         <p>Visita el siguiente enlace:</p>
-        <a href="${this.config.get('FRONTEND_URL')}/auth/new-password">
+        <a href="${frontendUrl}/auth/new-password">
           Restablecer contrasena
         </a>
         <p>e ingresa el codigo: <b>${token}</b></p>

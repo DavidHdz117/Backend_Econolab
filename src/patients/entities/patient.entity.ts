@@ -7,6 +7,12 @@ import {
   Index,
   Unique,
 } from 'typeorm';
+import { SyncMetadataEntity } from '../../common/entities/sync-metadata.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableEnumColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 export enum PatientGender {
   MALE = 'male',
@@ -16,7 +22,7 @@ export enum PatientGender {
 
 @Entity({ name: 'patients' })
 @Unique(['documentType', 'documentNumber'])
-export class Patient {
+export class Patient extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -30,7 +36,7 @@ export class Patient {
   @Column({ length: 100, nullable: true })
   middleName?: string;
 
-  @Column({ type: 'enum', enum: PatientGender, default: PatientGender.OTHER })
+  @Column(getPortableEnumColumnOptions(PatientGender, PatientGender.OTHER))
   gender: PatientGender;
 
   @Column({ type: 'date' })
@@ -68,9 +74,9 @@ export class Patient {
   @Column({ default: true })
   isActive: boolean;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn(getPortableCreateDateColumnOptions())
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions())
   updatedAt: Date;
 }

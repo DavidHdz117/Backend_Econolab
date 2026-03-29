@@ -1,22 +1,36 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import {
+  getMigrationDatabaseType,
+  getSqlBooleanLiteral,
+} from '../migration-database.util';
 
 export class AddPerformanceIndexes20260321000100 implements MigrationInterface {
   name = 'AddPerformanceIndexes20260321000100';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`
+    const databaseType = getMigrationDatabaseType(queryRunner);
+    const activeTrue = getSqlBooleanLiteral(databaseType, true);
+
+    const queries = [
+      `
       CREATE INDEX IF NOT EXISTS idx_service_orders_active_created_at
       ON service_orders ("isActive", "createdAt" DESC)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_service_orders_active_status_created_at
       ON service_orders ("isActive", status, "createdAt" DESC)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_service_orders_active_branch_created_at
       ON service_orders ("isActive", "branchName", "createdAt" DESC)
-    `);
-    await queryRunner.query(`
+    `,
+      databaseType === 'sqlite'
+        ? `
+      CREATE INDEX IF NOT EXISTS idx_service_orders_completed_lab_date
+      ON service_orders (date(coalesce("completedAt", "updatedAt", "createdAt")))
+      WHERE "isActive" = ${activeTrue} AND status = 'completed'
+    `
+        : `
       CREATE INDEX IF NOT EXISTS idx_service_orders_completed_lab_date
       ON service_orders (
         (
@@ -28,9 +42,15 @@ export class AddPerformanceIndexes20260321000100 implements MigrationInterface {
           )
         )
       )
-      WHERE "isActive" = true AND status = 'completed'
-    `);
-    await queryRunner.query(`
+      WHERE "isActive" = ${activeTrue} AND status = 'completed'
+    `,
+      databaseType === 'sqlite'
+        ? `
+      CREATE INDEX IF NOT EXISTS idx_service_orders_created_lab_date
+      ON service_orders (date("createdAt"))
+      WHERE "isActive" = ${activeTrue}
+    `
+        : `
       CREATE INDEX IF NOT EXISTS idx_service_orders_created_lab_date
       ON service_orders (
         (
@@ -42,69 +62,74 @@ export class AddPerformanceIndexes20260321000100 implements MigrationInterface {
           )
         )
       )
-      WHERE "isActive" = true
-    `);
-    await queryRunner.query(`
+      WHERE "isActive" = ${activeTrue}
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_service_order_items_service_order_id
       ON service_order_items (service_order_id)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_study_results_service_item_active
       ON study_results (service_order_item_id, "isActive")
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_study_results_service_order_active
       ON study_results (service_order_id, "isActive")
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE UNIQUE INDEX IF NOT EXISTS uq_study_results_active_per_item
       ON study_results (service_order_item_id)
-      WHERE "isActive" = true
-    `);
-    await queryRunner.query(`
+      WHERE "isActive" = ${activeTrue}
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_study_result_values_result_sort
       ON study_result_values (study_result_id, "sortOrder")
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_studies_active_name
       ON studies ("isActive", name)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_studies_active_status_type_name
       ON studies ("isActive", status, type, name)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_study_details_study_active_sort
       ON study_details (study_id, "isActive", "sortOrder")
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_patients_active_last_first
       ON patients ("isActive", "lastName", "firstName")
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_doctors_active_last_first
       ON doctors ("isActive", "lastName", "firstName")
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_user_confirmed_role_created_at
       ON "user" (confirmed, rol, "createdAt")
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_user_token
       ON "user" (token)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_user_session_user_revoked
       ON user_session ("userId", revoked)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_user_login_logs_created_at
       ON user_login_logs (created_at DESC)
-    `);
-    await queryRunner.query(`
+    `,
+      `
       CREATE INDEX IF NOT EXISTS idx_user_login_logs_user_created_at
       ON user_login_logs (user_id, created_at DESC)
-    `);
+    `,
+    ];
+
+    for (const query of queries) {
+      await queryRunner.query(query);
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

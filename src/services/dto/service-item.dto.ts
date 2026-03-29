@@ -1,8 +1,21 @@
-import { IsEnum, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsUUID,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ServiceItemPriceType } from '../entities/service-order.entity';
 
 export class CreateServiceItemDto {
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'El publicId del item debe ser un UUID valido.',
+  })
+  publicId?: string;
+
   @Type(() => Number)
   @IsInt({ message: 'El identificador del estudio debe ser un número entero.' })
   studyId: number;

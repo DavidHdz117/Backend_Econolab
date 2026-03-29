@@ -1,8 +1,12 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, Profile } from 'passport-google-oauth20';
-import { ConfigService } from '@nestjs/config';
 import { UsersService } from 'src/users/users.service';
+import { IntegrationPolicyService } from '../../runtime/integration-policy.service';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(
@@ -10,13 +14,17 @@ export class GoogleStrategy extends PassportStrategy(
   'google',
 ) {
   constructor(
-    cfg: ConfigService,
     private readonly usersService: UsersService,
+    private readonly integrationPolicy: IntegrationPolicyService,
   ) {
+    const { clientId, clientSecret, callbackUrl } =
+      integrationPolicy.googleAuthCredentials;
+
     super({
-      clientID: cfg.get<string>('GOOGLE_CLIENT_ID'),
-      clientSecret: cfg.get<string>('GOOGLE_CLIENT_SECRET'),
-      callbackURL: cfg.get<string>('GOOGLE_CALLBACK_URL'),
+      clientID: clientId || 'google-auth-disabled-client',
+      clientSecret: clientSecret || 'google-auth-disabled-secret',
+      callbackURL:
+        callbackUrl || 'http://localhost/google-auth-disabled/callback',
       scope: ['email', 'profile'],
     } as any);
   }
@@ -26,6 +34,12 @@ export class GoogleStrategy extends PassportStrategy(
     _refreshToken: string,
     profile: Profile,
   ) {
+    if (!this.integrationPolicy.googleAuthEnabled) {
+      throw new ServiceUnavailableException(
+        'El inicio de sesion con Google esta deshabilitado en este runtime.',
+      );
+    }
+
     const email = profile.emails?.[0]?.value;
     const nombre = profile.displayName;
     const googleAvatarUrl = profile.photos?.[0]?.value ?? null;

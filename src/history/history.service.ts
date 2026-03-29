@@ -20,6 +20,8 @@ import {
   type DailyClosingServiceSnapshot,
   type DailyClosingStudySnapshot,
 } from './entities/daily-closing.entity';
+import { DatabaseDialectService } from '../database/database-dialect.service';
+import { RuntimePolicyService } from '../runtime/runtime-policy.service';
 
 @Injectable()
 export class HistoryService {
@@ -31,6 +33,8 @@ export class HistoryService {
     private readonly serviceRepo: Repository<ServiceOrder>,
     @InjectRepository(DailyClosing)
     private readonly dailyClosingRepo: Repository<DailyClosing>,
+    private readonly databaseDialect: DatabaseDialectService,
+    private readonly runtimePolicy: RuntimePolicyService,
   ) {}
 
   private toNumber(value: unknown): number {
@@ -42,6 +46,7 @@ export class HistoryService {
   }
 
   private sqlNormalizedExpression(expression: string) {
+    return this.databaseDialect.buildCompactSearchExpression(expression);
     return buildCompactSearchSqlExpression(expression);
   }
 
@@ -279,7 +284,10 @@ export class HistoryService {
   ) {
     const normalizedSearch = this.normalizeSearchText(search);
     const completedAtExpr = `coalesce(s.completedAt, s.updatedAt, s.createdAt)`;
-    const labDateExpr = `date(timezone('${this.labTimeZone}', ${completedAtExpr}))`;
+    const labDateExpr = this.databaseDialect.getLocalDateExpression(
+      this.labTimeZone,
+      completedAtExpr,
+    );
     const completedSortAlias = 'history_completed_sort';
 
     const qb = this.serviceRepo
@@ -534,6 +542,7 @@ export class HistoryService {
   }
 
   async deleteDailyCut(id: number) {
+    this.runtimePolicy.assertHardDeleteAllowed('cortes diarios');
     const closing = await this.dailyClosingRepo.findOne({ where: { id } });
     if (!closing) {
       throw new NotFoundException('No se encontro el corte solicitado.');

@@ -7,11 +7,15 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 import { User } from 'src/users/entities/user.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableGeneratedPrimaryColumnOptions,
+} from '../../database/portable-column-options';
 
 @Entity({ name: 'user_login_logs' })
 export class UserLoginLog {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
-  id!: string;
+  @PrimaryGeneratedColumn(getPortableGeneratedPrimaryColumnOptions(true))
+  id!: string | number;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
@@ -30,6 +34,6 @@ export class UserLoginLog {
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'user_agent' })
   userAgent?: string | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn(getPortableCreateDateColumnOptions({ name: 'created_at' }))
   createdAt!: Date;
 }

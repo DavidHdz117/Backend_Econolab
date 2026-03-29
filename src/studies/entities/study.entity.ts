@@ -6,6 +6,13 @@ import {
   PrimaryGeneratedColumn,
   Index,
 } from 'typeorm';
+import { SyncMetadataEntity } from '../../common/entities/sync-metadata.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableEnumColumnOptions,
+  getPortableIntegerArrayColumnOptions,
+  getPortableUpdateDateColumnOptions,
+} from '../../database/portable-column-options';
 
 export enum StudyType {
   STUDY = 'study', // Estudio individual
@@ -19,7 +26,7 @@ export enum StudyStatus {
 }
 
 @Entity({ name: 'studies' })
-export class Study {
+export class Study extends SyncMetadataEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -37,7 +44,7 @@ export class Study {
   @Column({ type: 'int', default: 60 })
   durationMinutes: number; // duración en minutos (ej. 60 -> 01:00 h)
 
-  @Column({ type: 'enum', enum: StudyType, default: StudyType.STUDY })
+  @Column(getPortableEnumColumnOptions(StudyType, StudyType.STUDY))
   type: StudyType;
 
   // Precios
@@ -65,22 +72,18 @@ export class Study {
   @Column({ length: 150, nullable: true })
   indicator?: string;
 
-  @Column('int', { array: true, default: () => 'ARRAY[]::INTEGER[]' })
+  @Column(getPortableIntegerArrayColumnOptions({ nullable: false }))
   packageStudyIds: number[];
 
-  @Column({
-    type: 'enum',
-    enum: StudyStatus,
-    default: StudyStatus.ACTIVE,
-  })
+  @Column(getPortableEnumColumnOptions(StudyStatus, StudyStatus.ACTIVE))
   status: StudyStatus; // ACTIVO / SUSPENDIDO
 
   @Column({ default: true })
   isActive: boolean; // para baja lógica
 
-  @CreateDateColumn()
+  @CreateDateColumn(getPortableCreateDateColumnOptions({}, 'timestamp'))
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn(getPortableUpdateDateColumnOptions({}, 'timestamp'))
   updatedAt: Date;
 }

@@ -1,29 +1,69 @@
+import type { INestApplication } from '@nestjs/common';
+import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
 import { NestFactory } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { HttpExceptionZodFilter } from './common/filters/http-exception-zod.filter';
 import { validationExceptionFactory } from './common/validation/validation-exception.factory';
 import helmet from 'helmet';
+import type { AppRuntimeConfig } from './config/app.config';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+async function configureApp(app: INestApplication) {
+  const configService = app.get(ConfigService);
+  const runtimeConfig = configService.getOrThrow<AppRuntimeConfig>('app');
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       exceptionFactory: validationExceptionFactory,
     }),
   );
-  app.use(helmet());
-  app.enableCors({
-    origin: ['https://econolabe.netlify.app', 'http://localhost:5173'],
-    methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-    allowedHeaders: 'Content-Type, Authorization',
-  });
+
+  if (runtimeConfig.helmetEnabled) {
+    app.use(helmet());
+  }
+
+  if (runtimeConfig.corsEnabled) {
+    app.enableCors({
+      origin: runtimeConfig.corsOrigins,
+      methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+      allowedHeaders: 'Content-Type, Authorization',
+    });
+  }
 
   app.useGlobalFilters(new HttpExceptionZodFilter());
-  app.setGlobalPrefix('api');
-  await app.listen(process.env.PORT ?? 3000);
-  console.log(`Server running on port ${await app.getUrl()}`);
+  app.setGlobalPrefix(runtimeConfig.globalPrefix);
+
+  return runtimeConfig;
 }
 
-void bootstrap();
+export async function createConfiguredApp(options?: NestApplicationOptions) {
+  const app = await NestFactory.create(AppModule, options);
+  const runtimeConfig = await configureApp(app);
+
+  return {
+    app,
+    runtimeConfig,
+  };
+}
+
+export async function bootstrap() {
+  const { app, runtimeConfig } = await createConfiguredApp();
+
+  if (runtimeConfig.host) {
+    await app.listen(runtimeConfig.port, runtimeConfig.host);
+  } else {
+    await app.listen(runtimeConfig.port);
+  }
+
+  console.log(
+    `Server running on ${await app.getUrl()} [${runtimeConfig.runtimeMode}]`,
+  );
+
+  return app;
+}
+
+if (require.main === module) {
+  void bootstrap();
+}

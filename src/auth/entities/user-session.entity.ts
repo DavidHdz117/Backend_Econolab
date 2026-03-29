@@ -6,6 +6,10 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 import { User } from 'src/users/entities/user.entity';
+import {
+  getPortableCreateDateColumnOptions,
+  getPortableTimestampColumnOptions,
+} from '../../database/portable-column-options';
 
 @Entity()
 export class UserSession {
@@ -15,7 +19,7 @@ export class UserSession {
   @ManyToOne(() => User, (user) => user.sessions, { onDelete: 'CASCADE' })
   user: User;
 
-  @Column({ type: 'timestamp' })
+  @Column(getPortableTimestampColumnOptions({}, 'timestamp'))
   expiresAt: Date;
 
   @Column({ type: 'boolean', default: false })
@@ -27,6 +31,6 @@ export class UserSession {
   @Column({ type: 'text', nullable: true })
   userAgent: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn(getPortableCreateDateColumnOptions({}, 'timestamp'))
   createdAt: Date;
 }

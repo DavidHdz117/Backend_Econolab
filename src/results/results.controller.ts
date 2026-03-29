@@ -16,11 +16,15 @@ import { CreateStudyResultDto } from './dto/create-study-result.dto';
 import { UpdateStudyResultDto } from './dto/update-study-result.dto';
 import { Response } from 'express';
 import { sendInlinePdf } from '../common/utils/pdf-response.util';
+import { DocumentArtifactService } from '../storage/document-artifact.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('results')
 export class ResultsController {
-  constructor(private readonly resultsService: ResultsService) {}
+  constructor(
+    private readonly resultsService: ResultsService,
+    private readonly documentArtifacts: DocumentArtifactService,
+  ) {}
 
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -34,7 +38,11 @@ export class ResultsController {
     @Res() res: Response,
   ) {
     const buffer = await this.resultsService.generatePdf(+id, query);
-    sendInlinePdf(res, `resultado-${id}.pdf`, buffer);
+    sendInlinePdf(
+      res,
+      this.documentArtifacts.buildPdfFilename('resultado', id),
+      buffer,
+    );
   }
 
   @Get('service-order/:serviceOrderId/pdf')
@@ -47,7 +55,14 @@ export class ResultsController {
       +serviceOrderId,
       query,
     );
-    sendInlinePdf(res, `resultado-servicio-${serviceOrderId}.pdf`, buffer);
+    sendInlinePdf(
+      res,
+      this.documentArtifacts.buildPdfFilename(
+        'resultado-servicio',
+        serviceOrderId,
+      ),
+      buffer,
+    );
   }
 
   @Get('service-item/:serviceOrderItemId')

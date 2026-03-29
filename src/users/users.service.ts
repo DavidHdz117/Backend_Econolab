@@ -15,12 +15,16 @@ import { Role } from 'src/common/enums/roles.enum';
 import { MailService } from 'src/mail/mail.service';
 import { generateJWT, type AppJwtPayload } from 'src/common/utils/jwt.util';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { RuntimePolicyService } from '../runtime/runtime-policy.service';
+import { ProfileImageStorageService } from '../storage/profile-image-storage.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly userRepository: Repository<User>,
     private readonly mailService: MailService,
+    private readonly runtimePolicy: RuntimePolicyService,
+    private readonly profileImageStorage: ProfileImageStorageService,
   ) {}
 
   async register(dto: CreateUserDto) {
@@ -45,6 +49,10 @@ export class UsersService {
   }
 
   async forgotPassword(email: string) {
+    this.mailService.assertDeliveryAvailable(
+      'La recuperacion de contrasena por correo',
+    );
+
     const user = await this.findByEmail(email);
 
     const genericResponse = {
@@ -146,14 +154,13 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    user.profileImageData = file.buffer.toString('base64');
-    user.profileImageMimeType = file.mimetype;
+    await this.profileImageStorage.storeProfileImage(user, file);
 
     await this.userRepository.save(user);
 
     return {
       message: 'Foto de perfil actualizada',
-      user: this.toProfileView(user),
+      user: await this.toProfileView(user),
     };
   }
 
@@ -206,7 +213,7 @@ export class UsersService {
     return {
       message: 'Perfil actualizado',
       token: generateJWT(payload),
-      user: this.toProfileView(user),
+      user: await this.toProfileView(user),
     };
   }
 
@@ -263,6 +270,7 @@ export class UsersService {
   }
 
   async deleteUser(id: string) {
+    this.runtimePolicy.assertHardDeleteAllowed('usuarios');
     const user = await this.findOne(id);
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
@@ -343,15 +351,11 @@ export class UsersService {
     return this.userRepository.save(user);
   }
 
-  private getProfileImageUrl(user: User) {
-    if (user.profileImageData && user.profileImageMimeType) {
-      return `data:${user.profileImageMimeType};base64,${user.profileImageData}`;
-    }
-
-    return user.googleAvatarUrl ?? null;
+  private async getProfileImageUrl(user: User) {
+    return this.profileImageStorage.resolveProfileImageUrl(user);
   }
 
-  private toProfileView(user: User) {
+  private async toProfileView(user: User) {
     return {
       id: user.id,
       nombre: user.nombre,
@@ -360,7 +364,7 @@ export class UsersService {
       confirmed: user.confirmed,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-      profileImageUrl: this.getProfileImageUrl(user),
+      profileImageUrl: await this.getProfileImageUrl(user),
       authProvider: user.googleAvatarUrl ? 'google' : 'local',
     };
   }
