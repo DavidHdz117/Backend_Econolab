@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import PDFDocument = require('pdfkit');
 import { Repository } from 'typeorm';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as QRCode from 'qrcode';
 import { buildPersonName, formatAgeLabel } from '../common/utils/person.util';
 import {
@@ -376,7 +377,9 @@ export class ResultsService {
       const labSchedule = process.env.LAB_SCHEDULE ?? 'Horario no configurado';
       const labSampleSchedule =
         process.env.LAB_SAMPLE_SCHEDULE ?? 'Horario de toma no configurado';
-      const logoPath = process.env.LAB_LOGO_PATH ?? '@src\public\logoeco.png';
+      const logoPath =
+        process.env.LAB_LOGO_PATH ??
+        path.join(process.cwd(), 'src', 'public', 'logoeco.png');
       const signaturePath = process.env.LAB_SIGNATURE_PATH ?? '';
       const responsibleName =
         process.env.LAB_RESPONSIBLE_NAME ?? 'Responsable Sanitario';
@@ -785,7 +788,9 @@ export class ResultsService {
       const labSchedule = process.env.LAB_SCHEDULE ?? 'Horario no configurado';
       const labSampleSchedule =
         process.env.LAB_SAMPLE_SCHEDULE ?? 'Horario de toma no configurado';
-      const logoPath = process.env.LAB_LOGO_PATH ?? '@src\public\logoeco.png';
+      const logoPath =
+        process.env.LAB_LOGO_PATH ??
+        path.join(process.cwd(), 'src', 'public', 'logoeco.png');
       const signaturePath = process.env.LAB_SIGNATURE_PATH ?? '';
       const responsibleName =
         process.env.LAB_RESPONSIBLE_NAME ?? 'Responsable Sanitario';

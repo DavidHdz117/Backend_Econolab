@@ -31,6 +31,7 @@ import {
 } from '../studies/entities/study.entity';
 import PDFDocument = require('pdfkit');
 import * as fs from 'fs';
+import * as path from 'path';
 import * as bwipjs from 'bwip-js';
 
 const LAB_TIME_ZONE = 'America/Mexico_City';
@@ -283,7 +284,9 @@ export class ServicesService {
     const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
     const labPhone = process.env.LAB_PHONE ?? '';
     const labEmail = process.env.LAB_EMAIL ?? '';
-    const logoPath = process.env.LAB_LOGO_PATH ?? '';
+    const logoPath =
+      process.env.LAB_LOGO_PATH ??
+      path.join(process.cwd(), 'src', 'public', 'logoeco.png');
 
     const patient = service.patient;
     const barcodeText = this.buildReceiptBarcodeText(service);
@@ -624,7 +627,9 @@ export class ServicesService {
     const labAddress = process.env.LAB_ADDRESS ?? '';
     const labAddress2 = process.env.LAB_ADDRESS_2 ?? '';
     const labPhone = process.env.LAB_PHONE ?? '';
-    const logoPath = process.env.LAB_LOGO_PATH ?? '';
+    const logoPath =
+      process.env.LAB_LOGO_PATH ??
+      path.join(process.cwd(), 'src', 'public', 'logoeco.png');
     const patient = service.patient;
 
     const patientName =
