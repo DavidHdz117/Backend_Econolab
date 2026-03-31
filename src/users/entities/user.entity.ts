@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { Role } from 'src/common/enums/roles.enum';
 import { UserSession } from 'src/auth/entities/user-session.entity';
+import { SyncMetadataEntity } from '../../common/entities/sync-metadata.entity';
 import {
   getPortableCreateDateColumnOptions,
   getPortableEnumColumnOptions,
@@ -17,7 +18,7 @@ import {
 } from '../../database/portable-column-options';
 
 @Entity()
-export class User {
+export class User extends SyncMetadataEntity {
   @OneToMany(() => UserSession, (session) => session.user)
   sessions: UserSession[];
 

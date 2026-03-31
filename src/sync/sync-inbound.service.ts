@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, Repository, type EntityManager } from 'typeorm';
 import { Doctor } from '../doctors/entities/doctor.entity';
 import { Patient, PatientGender } from '../patients/entities/patient.entity';
+import { User } from '../users/entities/user.entity';
 import {
   ServiceOrder,
   ServiceOrderItem,
@@ -33,6 +34,7 @@ import {
   StudyDetailType,
 } from '../studies/entities/study-detail.entity';
 import type { SyncInboundMutationInput } from './dto/apply-sync-mutations.dto';
+import { Role } from '../common/enums/roles.enum';
 
 type ApplyMutationStatus =
   | 'applied'
@@ -293,6 +295,8 @@ export class SyncInboundService {
     mutation: SyncInboundMutationInput & { index: number },
   ) {
     switch (mutation.resourceType) {
+      case 'users':
+        return this.applyUser(manager, mutation);
       case 'patients':
         return this.applyPatient(manager, mutation);
       case 'doctors':
@@ -318,7 +322,7 @@ export class SyncInboundService {
     return currentVersion > incomingVersion;
   }
 
-  private async confirmEntitySyncState<TEntity extends { id: number }>(
+  private async confirmEntitySyncState<TEntity extends { id: number | string }>(
     repo: Repository<TEntity>,
     entity: TEntity & {
       lastSyncedVersion?: number | null;
@@ -364,6 +368,168 @@ export class SyncInboundService {
       currentVersion === incomingVersion &&
       (currentDeletedAt?.toISOString() ?? null) ===
         (incomingDeletedAt?.toISOString() ?? null)
+    );
+  }
+
+  private async applyUser(
+    manager: EntityManager,
+    mutation: SyncInboundMutationInput & { index: number },
+  ) {
+    const repo = manager.getRepository(User);
+    const publicId = toOptionalString(mutation.payload.publicId);
+    if (!publicId) {
+      throw new Error('La mutacion de usuario requiere publicId.');
+    }
+
+    const incomingVersion = Math.max(
+      1,
+      Math.trunc(toOptionalNumber(mutation.payload.syncVersion) ?? 1),
+    );
+    const incomingDeletedAt =
+      mutation.operation === SyncOutboxOperation.DELETE
+        ? toOptionalDate(mutation.payload.deletedAt) ?? new Date()
+        : toOptionalDate(mutation.payload.deletedAt);
+
+    const existing = await repo.findOne({ where: { publicId } });
+
+    if (mutation.operation === SyncOutboxOperation.DELETE) {
+      if (!existing) {
+        return createResult(
+          {
+            index: mutation.index,
+            resourceType: mutation.resourceType,
+            operation: mutation.operation,
+            publicId,
+          },
+          'skipped_duplicate',
+          'El usuario ya no existe localmente.',
+          null,
+        );
+      }
+
+      if (this.shouldSkipMutation(existing.syncVersion, incomingVersion)) {
+        return createResult(
+          {
+            index: mutation.index,
+            resourceType: mutation.resourceType,
+            operation: mutation.operation,
+            publicId,
+          },
+          'skipped_stale',
+          'La mutacion ya fue superada por una version local mas reciente.',
+          Number(existing.id),
+        );
+      }
+
+      await repo.remove(existing);
+
+      return createResult(
+        {
+          index: mutation.index,
+          resourceType: mutation.resourceType,
+          operation: mutation.operation,
+          publicId,
+        },
+        'applied',
+        'Usuario eliminado correctamente.',
+        Number(existing.id),
+      );
+    }
+
+    if (existing && this.shouldSkipMutation(existing.syncVersion, incomingVersion)) {
+      return createResult(
+        {
+          index: mutation.index,
+          resourceType: mutation.resourceType,
+          operation: mutation.operation,
+          publicId,
+        },
+        'skipped_stale',
+        'La mutacion ya fue superada por una version local mas reciente.',
+        Number(existing.id),
+      );
+    }
+
+    if (
+      existing &&
+      this.isDuplicateMutation(
+        existing.syncVersion,
+        incomingVersion,
+        existing.deletedAt,
+        incomingDeletedAt,
+      )
+    ) {
+      await this.confirmEntitySyncState(repo, existing, incomingVersion);
+
+      return createResult(
+        {
+          index: mutation.index,
+          resourceType: mutation.resourceType,
+          operation: mutation.operation,
+          publicId,
+        },
+        'skipped_duplicate',
+        'La mutacion ya estaba aplicada localmente.',
+        Number(existing.id),
+      );
+    }
+
+    const entity = markSyncEntityForRemoteApply(existing ?? repo.create());
+
+    repo.merge(entity, {
+      publicId,
+      syncVersion: incomingVersion,
+      lastSyncedVersion: incomingVersion,
+      syncOrigin:
+        toOptionalString(mutation.payload.syncOrigin) ??
+        entity.syncOrigin ??
+        'server',
+      lastSyncedAt: new Date(),
+      deletedAt: incomingDeletedAt,
+      nombre: toOptionalString(mutation.payload.nombre) ?? '',
+      email: toOptionalString(mutation.payload.email)?.toLowerCase() ?? '',
+      password: toOptionalString(mutation.payload.password) ?? '',
+      token: toOptionalString(mutation.payload.token),
+      confirmed: toBoolean(mutation.payload.confirmed, false),
+      rol:
+        (toOptionalString(mutation.payload.rol) as Role | null) ??
+        Role.Unassigned,
+      profileImageData:
+        toOptionalString(mutation.payload.profileImageData) ?? null,
+      profileImageMimeType:
+        toOptionalString(mutation.payload.profileImageMimeType) ?? null,
+      googleAvatarUrl:
+        toOptionalString(mutation.payload.googleAvatarUrl) ?? null,
+      resetTokenExpiresAt: toOptionalDate(
+        mutation.payload.resetTokenExpiresAt,
+      ),
+      resetRequestCount:
+        Math.max(
+          0,
+          Math.trunc(toOptionalNumber(mutation.payload.resetRequestCount) ?? 0),
+        ) ?? 0,
+      resetRequestWindowStart: toOptionalDate(
+        mutation.payload.resetRequestWindowStart,
+      ),
+      failedLoginAttempts: Math.max(
+        0,
+        Math.trunc(toOptionalNumber(mutation.payload.failedLoginAttempts) ?? 0),
+      ),
+      lockUntil: toOptionalDate(mutation.payload.lockUntil),
+    });
+
+    const saved = await repo.save(entity);
+
+    return createResult(
+      {
+        index: mutation.index,
+        resourceType: mutation.resourceType,
+        operation: mutation.operation,
+        publicId,
+      },
+      'applied',
+      'Usuario sincronizado correctamente.',
+      Number(saved.id),
     );
   }
 

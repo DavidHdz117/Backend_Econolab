@@ -11,7 +11,6 @@ import { getLabDateToken } from '../common/utils/lab-date.util';
 import { toFiniteNumber } from '../common/utils/number.util';
 import { buildPersonName, formatAgeLabel } from '../common/utils/person.util';
 import {
-  buildCompactSearchSqlExpression,
   normalizeCompactSearchText,
 } from '../common/utils/search-normalization.util';
 import {
@@ -125,7 +124,10 @@ export class ServicesService {
 
   private sqlNormalizedExpression(expression: string) {
     return this.databaseDialect.buildCompactSearchExpression(expression);
-    return buildCompactSearchSqlExpression(expression);
+  }
+
+  private get isSqlite() {
+    return this.databaseDialect.type === 'sqlite';
   }
 
   private getLabDateToken(date = new Date()) {
@@ -151,10 +153,18 @@ export class ServicesService {
   }
 
   private isUniqueConstraintError(error: unknown) {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const driverError = (error as QueryFailedError & {
+      driverError?: { code?: string; errno?: number };
+    }).driverError;
+
     return (
-      error instanceof QueryFailedError &&
-      (error as QueryFailedError & { driverError?: { code?: string } })
-        .driverError?.code === '23505'
+      driverError?.code === '23505' ||
+      driverError?.code === 'SQLITE_CONSTRAINT' ||
+      driverError?.errno === 19
     );
   }
 
@@ -165,10 +175,6 @@ export class ServicesService {
     const latest = await this.serviceRepo
       .createQueryBuilder('service')
       .where('service.folio LIKE :prefix', { prefix })
-      .andWhere(
-        `${this.databaseDialect.getDateTokenExpression(LAB_TIME_ZONE, 'service.createdAt')} = :dateToken`,
-        { dateToken },
-      )
       .orderBy('service.folio', 'DESC')
       .getOne();
 
@@ -1408,6 +1414,35 @@ export class ServicesService {
     }
 
     const normalizedSearch = this.normalizeSearchText(search);
+
+    if (this.isSqlite) {
+      qb.orderBy('s.createdAt', 'DESC');
+      const rows = await qb.getMany();
+      const filtered = !normalizedSearch
+        ? rows
+        : rows.filter((service) => {
+            const patientName = service.patient
+              ? `${service.patient.firstName} ${service.patient.lastName} ${service.patient.middleName ?? ''}`
+              : '';
+            const studyNames = (service.items ?? [])
+              .map((item) => item.studyNameSnapshot ?? '')
+              .join(' ');
+            const haystack = this.normalizeSearchText(
+              `${service.folio} ${patientName} ${studyNames}`,
+            );
+
+            return haystack.includes(normalizedSearch);
+          });
+
+      return {
+        data: filtered.slice((page - 1) * limit, (page - 1) * limit + limit),
+        meta: {
+          page,
+          limit,
+          total: filtered.length,
+        },
+      };
+    }
 
     if (normalizedSearch) {
       qb.andWhere(

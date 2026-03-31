@@ -87,6 +87,7 @@ async function main() {
     APP_RUNTIME_MODE: 'desktop-online',
     DATABASE_TYPE: 'sqlite',
     FRONTEND_URL: 'http://localhost:5173',
+    SYNC_REMOTE_BASE_URL: 'https://central.econolab.test/api',
     GMAIL_USER: 'mail@example.com',
     GMAIL_PASS: 'secret',
     GOOGLE_CLIENT_ID: 'client-id',
@@ -112,6 +113,7 @@ async function main() {
   const desktopOfflineEnv = createEnv({
     APP_RUNTIME_MODE: 'desktop-offline',
     DATABASE_TYPE: 'sqlite',
+    SYNC_REMOTE_BASE_URL: 'https://central.econolab.test/api',
     SYNC_MACHINE_TOKEN: 'desktop-offline-secret',
   });
   const desktopOffline = getDiagnosticsForEnv(desktopOfflineEnv);

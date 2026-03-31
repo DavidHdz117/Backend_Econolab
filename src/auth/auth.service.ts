@@ -1,14 +1,19 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { checkPassword } from '../common/utils/crypto.util';
 import { Role } from '../common/enums/roles.enum';
 import { generateJWT, type AppJwtPayload } from '../common/utils/jwt.util';
+import type { AppRuntimeConfig } from '../config/app.config';
+import { SyncRunnerService } from '../sync/sync-runner.service';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { AuthEventsService } from './auth-events.service';
@@ -17,14 +22,54 @@ import { UserSession } from './entities/user-session.entity';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly users: UsersService,
     private readonly authEvents: AuthEventsService,
+    private readonly configService: ConfigService,
+    private readonly syncRunner: SyncRunnerService,
     @InjectRepository(UserSession)
     private readonly sessionsRepo: Repository<UserSession>,
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
   ) {}
+
+  private get appRuntimeConfig(): AppRuntimeConfig {
+    return this.configService.getOrThrow<AppRuntimeConfig>('app');
+  }
+
+  private async tryHydrateUsersForDesktopLogin(email: string) {
+    const runtimeMode = this.appRuntimeConfig.runtimeMode;
+    if (runtimeMode === 'web-online') {
+      return null;
+    }
+
+    if (!this.syncRunner.getStatus().remoteBaseUrlConfigured) {
+      return null;
+    }
+
+    try {
+      await this.syncRunner.bootstrapFromRemote({
+        resourceTypes: ['users'],
+        includeDeleted: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `No se pudieron hidratar usuarios remotos para login desktop: ${message}`,
+      );
+      return {
+        user: null,
+        hydrationFailed: true,
+      };
+    }
+
+    return {
+      user: await this.users.findByEmail(email),
+      hydrationFailed: false,
+    };
+  }
 
   private async registerFailedLogin(user: User) {
     const MAX_ATTEMPTS = 3;
@@ -89,9 +134,24 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip?: string, userAgent?: string) {
-    const user = await this.users.findByEmail(dto.email);
+    let user = await this.users.findByEmail(dto.email);
+    let hydrationFailed = false;
+
+    if (!user) {
+      const hydrated = await this.tryHydrateUsersForDesktopLogin(dto.email);
+      if (hydrated) {
+        user = hydrated.user;
+        hydrationFailed = hydrated.hydrationFailed;
+      }
+    }
+
     if (!user) {
       await this.authEvents.logFailure(dto.email, ip, userAgent);
+      if (hydrationFailed) {
+        throw new ServiceUnavailableException(
+          'No fue posible sincronizar usuarios con el servidor central en este momento.',
+        );
+      }
       throw new NotFoundException('El e-mail no existe');
     }
 

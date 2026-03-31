@@ -269,6 +269,56 @@ export class SyncOutboxService {
     };
   }
 
+  async requeueAllFailed() {
+    const result = await this.outboxRepo.update(
+      {
+        status: SyncOutboxStatus.FAILED,
+      },
+      {
+        status: SyncOutboxStatus.PENDING,
+        lastError: null,
+        availableAt: new Date(),
+        leaseToken: null,
+        leasedAt: null,
+        processedAt: null,
+      },
+    );
+
+    return {
+      affected: result.affected ?? 0,
+    };
+  }
+
+  async discardAllFailed() {
+    const result = await this.outboxRepo.delete({
+      status: SyncOutboxStatus.FAILED,
+    });
+
+    return {
+      affected: result.affected ?? 0,
+    };
+  }
+
+  async requeueFailedReady() {
+    const result = await this.outboxRepo.update(
+      {
+        status: SyncOutboxStatus.FAILED,
+        availableAt: LessThanOrEqual(new Date()),
+      },
+      {
+        status: SyncOutboxStatus.PENDING,
+        lastError: null,
+        leaseToken: null,
+        leasedAt: null,
+        processedAt: null,
+      },
+    );
+
+    return {
+      affected: result.affected ?? 0,
+    };
+  }
+
   async failBatch(
     leaseToken: string,
     failures: Array<{ id: number; error: string }>,

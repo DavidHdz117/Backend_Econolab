@@ -120,6 +120,33 @@ export function buildRuntimeDiagnostics(input: RuntimeDiagnosticsInput) {
     );
   }
 
+  if (app.runtimeMode !== 'web-online' && !sync.remoteBaseUrl) {
+    addIssue(
+      issues,
+      'desktop-sync-remote-missing',
+      'warning',
+      'No hay SYNC_REMOTE_BASE_URL configurado. La app desktop podra trabajar localmente, pero no sabra con que servidor sincronizar.',
+    );
+  }
+
+  if (sync.autoEnabled && !sync.remoteBaseUrl) {
+    addIssue(
+      issues,
+      'sync-auto-without-remote',
+      'error',
+      'SYNC_AUTO_ENABLED esta activo, pero falta SYNC_REMOTE_BASE_URL.',
+    );
+  }
+
+  if (sync.autoEnabled && !sync.machineAuthEnabled) {
+    addIssue(
+      issues,
+      'sync-auto-without-machine-auth',
+      'warning',
+      'SYNC_AUTO_ENABLED esta activo sin autenticacion tecnica de sync. Para automatizacion conviene habilitar SYNC_MACHINE_TOKEN.',
+    );
+  }
+
   if (sync.machineAuthEnabled && !sync.machineToken) {
     addIssue(
       issues,
@@ -245,6 +272,10 @@ export function buildRuntimeDiagnostics(input: RuntimeDiagnosticsInput) {
       defaultOrigin: sync.defaultOrigin,
       outboxBatchSize: sync.outboxBatchSize,
       retryDelaySeconds: sync.retryDelaySeconds,
+      remoteBaseUrlConfigured: Boolean(sync.remoteBaseUrl),
+      autoEnabled: sync.autoEnabled,
+      autoIntervalSeconds: sync.autoIntervalSeconds,
+      bootstrapBatchSize: sync.bootstrapBatchSize,
       machineAuthEnabled: sync.machineAuthEnabled,
       machineHeaderName: sync.machineHeaderName,
       machineTokenConfigured: Boolean(sync.machineToken),

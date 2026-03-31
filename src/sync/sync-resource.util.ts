@@ -1,6 +1,7 @@
 import { In, type EntityManager, type ObjectLiteral } from 'typeorm';
 import { Doctor } from '../doctors/entities/doctor.entity';
 import { Patient } from '../patients/entities/patient.entity';
+import { User } from '../users/entities/user.entity';
 import {
   ServiceOrder,
   ServiceOrderItem,
@@ -13,6 +14,7 @@ import { Study } from '../studies/entities/study.entity';
 import { StudyDetail } from '../studies/entities/study-detail.entity';
 
 export const SUPPORTED_INBOUND_SYNC_RESOURCES = [
+  'users',
   'patients',
   'doctors',
   'studies',
@@ -30,6 +32,7 @@ export const SYNC_TRACKED_RESOURCE_ENTITY_MAP: Record<
   SupportedInboundSyncResourceType,
   new () => ObjectLiteral
 > = {
+  users: User,
   patients: Patient,
   doctors: Doctor,
   studies: Study,
@@ -41,6 +44,7 @@ export const SYNC_TRACKED_RESOURCE_ENTITY_MAP: Record<
 };
 
 const SYNC_RESOURCE_ORDER = [
+  'users',
   'patients',
   'doctors',
   'studies',

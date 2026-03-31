@@ -37,6 +37,10 @@ export class PatientsService {
       .replace(/[^a-z0-9]+/g, '');
   }
 
+  private get isSqlite() {
+    return this.databaseDialect.type === 'sqlite';
+  }
+
   private buildNormalizedSql(field: string) {
     return this.databaseDialect.buildCompactSearchExpression(field);
   }
@@ -66,6 +70,27 @@ export class PatientsService {
 
     if (!normalizedType || !normalizedNumber) {
       return null;
+    }
+
+    if (this.isSqlite) {
+      const candidates = await this.repo.find({
+        where: activeOnly ? { isActive: true } : {},
+      });
+
+      return (
+        candidates.find((candidate) => {
+          if (excludeId && candidate.id === excludeId) {
+            return false;
+          }
+
+          return (
+            this.normalizeSearchValue(candidate.documentType ?? '') ===
+              normalizedType &&
+            this.normalizeSearchValue(candidate.documentNumber ?? '') ===
+              normalizedNumber
+          );
+        }) ?? null
+      );
     }
 
     const qb = this.repo
@@ -105,6 +130,27 @@ export class PatientsService {
 
     if (!normalizedFullName || !patient.birthDate) {
       return null;
+    }
+
+    if (this.isSqlite) {
+      const candidates = await this.repo.find();
+
+      return (
+        candidates.find((candidate) => {
+          if (excludeId && candidate.id === excludeId) {
+            return false;
+          }
+
+          const candidateNormalizedFullName = this.normalizeSearchValue(
+            `${candidate.firstName} ${candidate.lastName} ${candidate.middleName ?? ''}`,
+          );
+
+          return (
+            candidateNormalizedFullName === normalizedFullName &&
+            candidate.birthDate === patient.birthDate
+          );
+        }) ?? null
+      );
     }
 
     const qb = this.repo
@@ -162,6 +208,52 @@ export class PatientsService {
 
   async search(search: string, page = 1, limit = 10, status?: string) {
     const normalizedStatus = this.normalizeStatusFilter(status);
+
+    if (this.isSqlite) {
+      const rows = await this.repo.find({
+        where:
+          normalizedStatus === 'all'
+            ? {}
+            : { isActive: normalizedStatus === 'active' },
+        order: {
+          lastName: 'ASC',
+          firstName: 'ASC',
+        },
+      });
+
+      const normalizedSearch = this.normalizeSearchValue(search);
+      const filtered = !normalizedSearch
+        ? rows
+        : rows.filter((patient) => {
+            const haystack = [
+              patient.firstName,
+              patient.lastName,
+              patient.middleName,
+              `${patient.firstName} ${patient.lastName} ${patient.middleName ?? ''}`,
+              patient.phone,
+              patient.email,
+              patient.documentNumber,
+              patient.addressLine,
+            ]
+              .map((value) => this.normalizeSearchValue(value ?? ''))
+              .filter(Boolean);
+
+            return haystack.some((value) => value.includes(normalizedSearch));
+          });
+
+      const start = Math.max(0, (page - 1) * limit);
+      const data = filtered.slice(start, start + limit);
+
+      return {
+        data,
+        meta: {
+          page,
+          limit,
+          total: filtered.length,
+        },
+      };
+    }
+
     const qb = this.repo
       .createQueryBuilder('patient')
       .select([

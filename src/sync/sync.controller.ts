@@ -65,6 +65,26 @@ export class SyncController {
     };
   }
 
+  @Post('requeue-failed-all')
+  async requeueFailedAll() {
+    const result = await this.syncOutbox.requeueAllFailed();
+
+    return {
+      message: 'Eventos fallidos reencolados correctamente.',
+      affected: result.affected,
+    };
+  }
+
+  @Post('discard-failed-all')
+  async discardFailedAll() {
+    const result = await this.syncOutbox.discardAllFailed();
+
+    return {
+      message: 'Eventos fallidos descartados correctamente.',
+      affected: result.affected,
+    };
+  }
+
   @Post('inbound/apply')
   applyInbound(@Body() dto: ApplySyncMutationsDto) {
     return this.syncInbound.applyBatch(dto.mutations);

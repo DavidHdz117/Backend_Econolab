@@ -47,6 +47,10 @@ export class DoctorsService {
     return (value ?? '').trim().toLowerCase();
   }
 
+  private get isSqlite() {
+    return this.databaseDialect.type === 'sqlite';
+  }
+
   private buildNormalizedSql(field: string) {
     return this.databaseDialect.buildCompactSearchExpression(field);
   }
@@ -83,6 +87,25 @@ export class DoctorsService {
       return null;
     }
 
+    if (this.isSqlite) {
+      const candidates = await this.repo.find({
+        where: activeOnly ? { isActive: true } : {},
+      });
+
+      return (
+        candidates.find((candidate) => {
+          if (excludeId && candidate.id === excludeId) {
+            return false;
+          }
+
+          return (
+            this.normalizeSearchValue(candidate.licenseNumber ?? '') ===
+            normalizedLicense
+          );
+        }) ?? null
+      );
+    }
+
     const qb = this.repo
       .createQueryBuilder('doctor')
       .where(`${this.buildNormalizedSql('doctor.licenseNumber')} = :license`, {
@@ -113,6 +136,27 @@ export class DoctorsService {
       return null;
     }
 
+    if (this.isSqlite) {
+      const candidates = await this.repo.find();
+
+      return (
+        candidates.find((candidate) => {
+          if (excludeId && candidate.id === excludeId) {
+            return false;
+          }
+
+          const candidateNormalizedFullName = this.normalizeSearchValue(
+            `${candidate.firstName} ${candidate.lastName} ${candidate.middleName ?? ''}`,
+          );
+
+          return (
+            candidateNormalizedFullName === normalizedFullName &&
+            this.normalizeEmailValue(candidate.email) === normalizedEmail
+          );
+        }) ?? null
+      );
+    }
+
     const qb = this.repo
       .createQueryBuilder('doctor')
       .where(
@@ -141,6 +185,27 @@ export class DoctorsService {
 
     if (!normalizedFullName || !normalizedPhone) {
       return null;
+    }
+
+    if (this.isSqlite) {
+      const candidates = await this.repo.find();
+
+      return (
+        candidates.find((candidate) => {
+          if (excludeId && candidate.id === excludeId) {
+            return false;
+          }
+
+          const candidateNormalizedFullName = this.normalizeSearchValue(
+            `${candidate.firstName} ${candidate.lastName} ${candidate.middleName ?? ''}`,
+          );
+
+          return (
+            candidateNormalizedFullName === normalizedFullName &&
+            this.normalizePhoneValue(candidate.phone) === normalizedPhone
+          );
+        }) ?? null
+      );
     }
 
     const qb = this.repo
@@ -175,6 +240,28 @@ export class DoctorsService {
       return null;
     }
 
+    if (this.isSqlite) {
+      const candidates = await this.repo.find();
+
+      return (
+        candidates.find((candidate) => {
+          if (excludeId && candidate.id === excludeId) {
+            return false;
+          }
+
+          const candidateNormalizedFullName = this.normalizeSearchValue(
+            `${candidate.firstName} ${candidate.lastName} ${candidate.middleName ?? ''}`,
+          );
+
+          return (
+            candidateNormalizedFullName === normalizedFullName &&
+            this.normalizeSearchValue(candidate.specialty ?? '') ===
+              normalizedSpecialty
+          );
+        }) ?? null
+      );
+    }
+
     const qb = this.repo
       .createQueryBuilder('doctor')
       .where(
@@ -202,6 +289,24 @@ export class DoctorsService {
 
     if (!normalizedFullName) {
       return null;
+    }
+
+    if (this.isSqlite) {
+      const candidates = await this.repo.find();
+
+      return (
+        candidates.find((candidate) => {
+          if (excludeId && candidate.id === excludeId) {
+            return false;
+          }
+
+          const candidateNormalizedFullName = this.normalizeSearchValue(
+            `${candidate.firstName} ${candidate.lastName} ${candidate.middleName ?? ''}`,
+          );
+
+          return candidateNormalizedFullName === normalizedFullName;
+        }) ?? null
+      );
     }
 
     const qb = this.repo
@@ -295,6 +400,52 @@ export class DoctorsService {
 
   async search(search: string, page = 1, limit = 10, status?: string) {
     const normalizedStatus = this.normalizeStatusFilter(status);
+
+    if (this.isSqlite) {
+      const rows = await this.repo.find({
+        where:
+          normalizedStatus === 'all'
+            ? {}
+            : { isActive: normalizedStatus === 'active' },
+        order: {
+          lastName: 'ASC',
+          firstName: 'ASC',
+        },
+      });
+
+      const normalizedSearch = this.normalizeSearchValue(search);
+      const filtered = !normalizedSearch
+        ? rows
+        : rows.filter((doctor) => {
+            const haystack = [
+              doctor.firstName,
+              doctor.lastName,
+              doctor.middleName,
+              `${doctor.firstName} ${doctor.lastName} ${doctor.middleName ?? ''}`,
+              doctor.email,
+              doctor.phone,
+              doctor.licenseNumber,
+              doctor.specialty,
+            ]
+              .map((value) => this.normalizeSearchValue(value ?? ''))
+              .filter(Boolean);
+
+            return haystack.some((value) => value.includes(normalizedSearch));
+          });
+
+      const start = Math.max(0, (page - 1) * limit);
+      const data = filtered.slice(start, start + limit);
+
+      return {
+        data,
+        meta: {
+          page,
+          limit,
+          total: filtered.length,
+        },
+      };
+    }
+
     const qb = this.repo
       .createQueryBuilder('doctor')
       .select([
