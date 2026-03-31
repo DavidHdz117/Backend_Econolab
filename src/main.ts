@@ -9,6 +9,10 @@ import { validationExceptionFactory } from './common/validation/validation-excep
 import helmet from 'helmet';
 import type { AppRuntimeConfig } from './config/app.config';
 
+function normalizeOrigin(origin?: string | null) {
+  return origin?.trim().replace(/\/+$/, '') ?? '';
+}
+
 async function configureApp(app: INestApplication) {
   const configService = app.get(ConfigService);
   const runtimeConfig = configService.getOrThrow<AppRuntimeConfig>('app');
@@ -25,8 +29,21 @@ async function configureApp(app: INestApplication) {
   }
 
   if (runtimeConfig.corsEnabled) {
+    const allowedOrigins = new Set(
+      runtimeConfig.corsOrigins
+        .map((origin) => normalizeOrigin(origin))
+        .filter(Boolean),
+    );
+
     app.enableCors({
-      origin: runtimeConfig.corsOrigins,
+      origin: (origin, callback) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+
+        callback(null, allowedOrigins.has(normalizeOrigin(origin)));
+      },
       methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       allowedHeaders: 'Content-Type, Authorization',
     });

@@ -12,7 +12,7 @@ export type AppRuntimeMode =
   | 'desktop-offline';
 
 const DEFAULT_CORS_ORIGINS = [
-  'https://econolabe.netlify.app',
+  'https://econolab.netlify.app',
   'http://localhost:5173',
 ];
 
