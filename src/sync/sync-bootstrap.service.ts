@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, EntityMetadata, ObjectLiteral } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -75,6 +76,40 @@ export class SyncBootstrapService {
     return buildPortableSyncPayload(resourceType, payload, manager);
   }
 
+  private async ensurePublicIdsForResource(
+    manager: EntityManager,
+    metadata: EntityMetadata,
+    alias: string,
+  ) {
+    const publicIdColumn = metadata.columns.find(
+      (column) => column.propertyName === 'publicId',
+    );
+    const primaryColumn = metadata.primaryColumns[0];
+    const primaryProperty = primaryColumn?.propertyPath;
+
+    if (!publicIdColumn || !primaryColumn || !primaryProperty) {
+      return;
+    }
+
+    const rowsMissingPublicId = await manager
+      .getRepository(metadata.target as new () => ObjectLiteral)
+      .createQueryBuilder(alias)
+      .select(`${alias}.${primaryProperty}`, 'id')
+      .where(`${alias}.${publicIdColumn.propertyPath} IS NULL`)
+      .getRawMany<{ id: string | number }>();
+
+    for (const row of rowsMissingPublicId) {
+      await manager
+        .createQueryBuilder()
+        .update(metadata.target)
+        .set({
+          [publicIdColumn.propertyName]: randomUUID(),
+        })
+        .where(`${primaryProperty} = :id`, { id: row.id })
+        .execute();
+    }
+  }
+
   async exportResourcePage(
     resourceType: SupportedInboundSyncResourceType,
     options?: {
@@ -100,6 +135,8 @@ export class SyncBootstrapService {
           `El recurso ${resourceType} no tiene una clave primaria util para bootstrap.`,
         );
       }
+
+      await this.ensurePublicIdsForResource(manager, metadata, alias);
 
       const includeDeleted = toBoolean(options?.includeDeleted, true);
       const limit = this.normalizeLimit(options?.limit);
