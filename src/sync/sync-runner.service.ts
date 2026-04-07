@@ -45,6 +45,9 @@ export class SyncRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SyncRunnerService.name);
   private autoInterval: NodeJS.Timeout | null = null;
   private startupTimer: NodeJS.Timeout | null = null;
+  private startupSyncPromise: Promise<unknown> | null = null;
+  private readonly attemptedEmptyBootstrapResources =
+    new Set<SupportedInboundSyncResourceType>();
   private running = false;
   private lastRunAt: string | null = null;
   private lastRunResult: Record<string, unknown> | null = null;
@@ -70,17 +73,31 @@ export class SyncRunnerService implements OnModuleInit, OnModuleDestroy {
     return Boolean(this.runtimeConfig.remoteBaseUrl);
   }
 
+  private startStartupSync() {
+    if (this.startupSyncPromise) {
+      return this.startupSyncPromise;
+    }
+
+    this.startupSyncPromise = this.runStartupSync()
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`La sincronizacion inicial fallo: ${message}`);
+      })
+      .finally(() => {
+        this.startupSyncPromise = null;
+      });
+
+    return this.startupSyncPromise;
+  }
+
   onModuleInit() {
     if (!this.startupSyncEnabled) {
       return;
     }
 
     this.startupTimer = setTimeout(() => {
-      void this.runStartupSync().catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`La sincronizacion inicial fallo: ${message}`);
-      });
-    }, 1500);
+      void this.startStartupSync();
+    }, 250);
 
     if (!this.autoSyncEnabled) {
       return;
@@ -140,20 +157,11 @@ export class SyncRunnerService implements OnModuleInit, OnModuleDestroy {
 
   private async resolveBootstrapResourceTypes() {
     const counts = await this.getLocalResourceCounts();
-    const totalTrackedRecords = Object.values(counts).reduce(
-      (accumulator, value) => accumulator + value,
-      0,
+    return SUPPORTED_INBOUND_SYNC_RESOURCES.filter(
+      (resourceType) =>
+        counts[resourceType] === 0 &&
+        !this.attemptedEmptyBootstrapResources.has(resourceType),
     );
-
-    if (totalTrackedRecords === 0) {
-      return [...SUPPORTED_INBOUND_SYNC_RESOURCES];
-    }
-
-    if (counts.users === 0) {
-      return ['users'] as SupportedInboundSyncResourceType[];
-    }
-
-    return [] as SupportedInboundSyncResourceType[];
   }
 
   private async runStartupSync() {
@@ -236,6 +244,33 @@ export class SyncRunnerService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
+  private getSyncFailureMessage(result: unknown) {
+    const message =
+      typeof (result as { message?: unknown } | null)?.message === 'string'
+        ? (result as { message: string }).message
+        : null;
+    if (message) {
+      return message;
+    }
+
+    const pullError =
+      typeof (result as { pull?: { error?: unknown } } | null)?.pull?.error ===
+      'string'
+        ? ((result as { pull?: { error?: string } }).pull?.error ?? null)
+        : null;
+    if (pullError) {
+      return pullError;
+    }
+
+    const pushError =
+      typeof (result as { push?: { error?: unknown } } | null)?.push?.error ===
+      'string'
+        ? ((result as { push?: { error?: string } }).push?.error ?? null)
+        : null;
+
+    return pushError;
+  }
+
   async bootstrapFromRemote(options?: {
     resourceTypes?: string[];
     limit?: number;
@@ -308,6 +343,10 @@ export class SyncRunnerService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    resourceTypes.forEach((resourceType) => {
+      this.attemptedEmptyBootstrapResources.add(resourceType);
+    });
+
     return {
       remoteBaseUrl: this.runtimeConfig.remoteBaseUrl,
       resources: summary,
@@ -318,6 +357,55 @@ export class SyncRunnerService implements OnModuleInit, OnModuleDestroy {
         deferred: summary.reduce((acc, item) => acc + item.deferred, 0),
         failed: summary.reduce((acc, item) => acc + item.failed, 0),
       },
+    };
+  }
+
+  async ensureDesktopDataReady() {
+    if (!this.runtimeConfig.remoteBaseUrl) {
+      return {
+        status: 'skipped_not_configured' as const,
+        resourceTypes: [] as SupportedInboundSyncResourceType[],
+        sync: null,
+      };
+    }
+
+    if (this.startupTimer) {
+      clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+    }
+
+    if (this.startupSyncPromise) {
+      await this.startupSyncPromise;
+    }
+
+    const bootstrapResourceTypes = await this.resolveBootstrapResourceTypes();
+    const bootstrap =
+      bootstrapResourceTypes.length > 0
+        ? await this.bootstrapFromRemote({
+            resourceTypes: bootstrapResourceTypes,
+            includeDeleted: true,
+          })
+        : null;
+
+    const sync = await this.runOnce({
+      reason: 'login',
+    });
+
+    if (bootstrapResourceTypes.length > 0 && sync.status !== 'completed') {
+      throw new Error(
+        this.getSyncFailureMessage(sync) ??
+          'No se pudo completar la sincronizacion inicial del escritorio.',
+      );
+    }
+
+    return {
+      status:
+        bootstrapResourceTypes.length > 0
+          ? ('completed' as const)
+          : ('up_to_date' as const),
+      resourceTypes: bootstrapResourceTypes,
+      bootstrap,
+      sync,
     };
   }
 

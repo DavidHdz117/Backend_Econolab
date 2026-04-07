@@ -71,6 +71,29 @@ export class AuthService {
     };
   }
 
+  private async ensureDesktopDataReadyForLogin() {
+    const runtimeMode = this.appRuntimeConfig.runtimeMode;
+    if (runtimeMode === 'web-online') {
+      return;
+    }
+
+    if (!this.syncRunner.getStatus().remoteBaseUrlConfigured) {
+      return;
+    }
+
+    try {
+      await this.syncRunner.ensureDesktopDataReady();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `No se pudo preparar la data inicial para login desktop: ${message}`,
+      );
+      throw new ServiceUnavailableException(
+        'No fue posible preparar los catalogos iniciales del escritorio. Verifica la conexion con el servidor central e intentalo de nuevo.',
+      );
+    }
+  }
+
   private async registerFailedLogin(user: User) {
     const MAX_ATTEMPTS = 3;
     const LOCK_MINUTES = 15;
@@ -187,6 +210,7 @@ export class AuthService {
     }
 
     await this.resetLoginAttempts(user);
+    await this.ensureDesktopDataReadyForLogin();
 
     return this.createAuthenticatedResponse(
       user,
