@@ -5,6 +5,9 @@ import {
 } from '../common/utils/asset-path.util';
 
 const DEFAULT_LOGO_PATH_CANDIDATES = [
+  'src/public/econolab-brand.png',
+  'public/econolab-brand.png',
+  'dist/public/econolab-brand.png',
   'src/public/logoeco.png',
   'public/logoeco.png',
   'dist/public/logoeco.png',

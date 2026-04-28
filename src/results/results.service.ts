@@ -408,6 +408,33 @@ export class ResultsService {
     return y + 18;
   }
 
+  private drawCenteredResultHeading(
+    doc: ResultPdfDoc,
+    left: number,
+    right: number,
+    y: number,
+    text: string,
+    fontSize = 12.5,
+  ) {
+    const normalizedText = text.trim() || 'RESULTADOS';
+
+    doc.font('Helvetica-Bold').fontSize(fontSize);
+    const height = doc.heightOfString(normalizedText, {
+      width: right - left,
+      align: 'center',
+    });
+
+    doc
+      .fillColor('#356e93')
+      .text(normalizedText, left, y, {
+        width: right - left,
+        align: 'center',
+      })
+      .fillColor('black');
+
+    return height;
+  }
+
   private async getStudyDetailsMap(studyIds: number[]) {
     const uniqueStudyIds = [...new Set(studyIds)];
     const entries = await Promise.all(
@@ -485,7 +512,10 @@ export class ResultsService {
       const right = doc.page.width - left;
       const pageBottom = doc.page.height - 48;
       const headerY = 48;
-      const logoBox = { x: left, y: headerY, w: 90, h: 50 };
+      const logoBox = { x: left, y: headerY + 4, w: 132, h: 42 };
+      const headerTitleX = 194;
+      const headerTitleWidth = 186;
+      const headerMetaX = 390;
       const columns: ResultPdfColumns = {
         label: left,
         value: 280,
@@ -556,15 +586,24 @@ export class ResultsService {
       doc
         .font('Helvetica-Bold')
         .fontSize(18)
-        .text(labName, 160, headerY - 2, { width: 220, align: 'center' });
+        .text(labName, headerTitleX, headerY - 2, {
+          width: headerTitleWidth,
+          align: 'center',
+        });
       doc
         .font('Helvetica')
         .fontSize(9)
-        .text(labSubtitle, 160, headerY + 22, { width: 220, align: 'center' });
-      doc.text(labAddress, 160, headerY + 34, { width: 220, align: 'center' });
+        .text(labSubtitle, headerTitleX, headerY + 22, {
+          width: headerTitleWidth,
+          align: 'center',
+        });
+      doc.text(labAddress, headerTitleX, headerY + 34, {
+        width: headerTitleWidth,
+        align: 'center',
+      });
       if (labAddress2) {
-        doc.text(labAddress2, 160, headerY + 46, {
-          width: 220,
+        doc.text(labAddress2, headerTitleX, headerY + 46, {
+          width: headerTitleWidth,
           align: 'center',
         });
       }
@@ -572,16 +611,21 @@ export class ResultsService {
       doc
         .font('Helvetica-Bold')
         .fontSize(12)
-        .text(`SUC: ${this.displayText(service?.branchName)}`, 390, headerY, {
-          width: right - 390,
-          align: 'right',
-        });
+        .text(
+          `SUC: ${this.displayText(service?.branchName)}`,
+          headerMetaX,
+          headerY,
+          {
+            width: right - headerMetaX,
+            align: 'right',
+          },
+        );
       doc.text(
         `FOLIO: ${this.displayText(service?.folio)}`,
-        390,
+        headerMetaX,
         headerY + 20,
         {
-          width: right - 390,
+          width: right - headerMetaX,
           align: 'right',
         },
       );
@@ -636,26 +680,31 @@ export class ResultsService {
 
       doc.moveTo(left, 272).lineTo(right, 272).strokeColor('#bdbdbd').stroke();
 
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(13)
-        .fillColor('#356e93')
-        .text(`ESTUDIO: ${studyName}`, left, 282, {
+      const studyTitleY = 282;
+      const studyTitleHeight = this.drawCenteredResultHeading(
+        doc,
+        left,
+        right,
+        studyTitleY,
+        `ESTUDIO: ${studyName}`,
+        13,
+      );
+      let tableY = studyTitleY + studyTitleHeight + 12;
+
+      if (result.method) {
+        const methodLabel = `Metodo: ${result.method}`;
+        doc.font('Helvetica').fontSize(9);
+        doc.text(methodLabel, left, tableY - 8, {
           width: right - left,
           align: 'center',
-        })
-        .fillColor('black');
-      if (result.method) {
-        doc
-          .font('Helvetica')
-          .fontSize(9)
-          .text(`Metodo: ${result.method}`, left, 298, {
-            width: right - left,
-            align: 'center',
-          });
+        });
+        const methodHeight = doc.heightOfString(methodLabel, {
+          width: right - left,
+          align: 'center',
+        });
+        tableY += methodHeight + 4;
       }
 
-      const tableY = result.method ? 318 : 306;
       let cursorY = this.drawResultTableHeader(
         doc,
         left,
@@ -889,7 +938,10 @@ export class ResultsService {
       const right = doc.page.width - left;
       const pageBottom = doc.page.height - 48;
       const headerY = 48;
-      const logoBox = { x: left, y: headerY, w: 90, h: 50 };
+      const logoBox = { x: left, y: headerY + 4, w: 132, h: 42 };
+      const headerTitleX = 194;
+      const headerTitleWidth = 186;
+      const headerMetaX = 390;
       const columns: ResultPdfColumns = {
         label: left,
         value: 280,
@@ -950,25 +1002,35 @@ export class ResultsService {
         let nextY = y;
 
         if (showSectionTitle) {
+          const sectionTitle = sectionLabel(section);
           doc
             .font('Helvetica-Bold')
             .fontSize(12)
-            .text(sectionLabel(section), left, nextY, {
+            .text(sectionTitle, left, nextY, {
               width: right - left,
               align: 'center',
             });
-          nextY += 18;
+          nextY +=
+            doc.heightOfString(sectionTitle, {
+              width: right - left,
+              align: 'center',
+            }) + 6;
         }
 
         if (section.result.method) {
+          const methodLabel = `Metodo: ${section.result.method}`;
           doc
             .font('Helvetica')
             .fontSize(9)
-            .text(`Metodo: ${section.result.method}`, left, nextY, {
+            .text(methodLabel, left, nextY, {
               width: right - left,
               align: 'center',
             });
-          nextY += 16;
+          nextY +=
+            doc.heightOfString(methodLabel, {
+              width: right - left,
+              align: 'center',
+            }) + 6;
         }
 
         nextY = this.drawResultTableHeader(doc, left, right, nextY, columns);
@@ -1009,15 +1071,24 @@ export class ResultsService {
       doc
         .font('Helvetica-Bold')
         .fontSize(18)
-        .text(labName, 160, headerY - 2, { width: 220, align: 'center' });
+        .text(labName, headerTitleX, headerY - 2, {
+          width: headerTitleWidth,
+          align: 'center',
+        });
       doc
         .font('Helvetica')
         .fontSize(9)
-        .text(labSubtitle, 160, headerY + 22, { width: 220, align: 'center' });
-      doc.text(labAddress, 160, headerY + 34, { width: 220, align: 'center' });
+        .text(labSubtitle, headerTitleX, headerY + 22, {
+          width: headerTitleWidth,
+          align: 'center',
+        });
+      doc.text(labAddress, headerTitleX, headerY + 34, {
+        width: headerTitleWidth,
+        align: 'center',
+      });
       if (labAddress2) {
-        doc.text(labAddress2, 160, headerY + 46, {
-          width: 220,
+        doc.text(labAddress2, headerTitleX, headerY + 46, {
+          width: headerTitleWidth,
           align: 'center',
         });
       }
@@ -1025,12 +1096,12 @@ export class ResultsService {
       doc
         .font('Helvetica-Bold')
         .fontSize(12)
-        .text(`SUC: ${this.displayText(service.branchName)}`, 390, headerY, {
-          width: right - 390,
+        .text(`SUC: ${this.displayText(service.branchName)}`, headerMetaX, headerY, {
+          width: right - headerMetaX,
           align: 'right',
         });
-      doc.text(`FOLIO: ${this.displayText(service.folio)}`, 390, headerY + 20, {
-        width: right - 390,
+      doc.text(`FOLIO: ${this.displayText(service.folio)}`, headerMetaX, headerY + 20, {
+        width: right - headerMetaX,
         align: 'right',
       });
 
@@ -1084,18 +1155,22 @@ export class ResultsService {
 
       doc.moveTo(left, 272).lineTo(right, 272).strokeColor('#bdbdbd').stroke();
 
+      const combinedTitleY = 284;
+      const combinedTitleHeight = this.drawCenteredResultHeading(
+        doc,
+        left,
+        right,
+        combinedTitleY,
+        combinedStudyTitle,
+      );
+      const combinedTitleDividerY = combinedTitleY + combinedTitleHeight + 8;
       doc
-        .font('Helvetica-Bold')
-        .fontSize(12.5)
-        .fillColor('#356e93')
-        .text(combinedStudyTitle, left, 284, {
-          width: right - left,
-          align: 'center',
-        })
-        .fillColor('black');
-      doc.moveTo(left, 304).lineTo(right, 304).strokeColor('#bdbdbd').stroke();
+        .moveTo(left, combinedTitleDividerY)
+        .lineTo(right, combinedTitleDividerY)
+        .strokeColor('#bdbdbd')
+        .stroke();
 
-      let cursorY = 320;
+      let cursorY = combinedTitleDividerY + 16;
       for (
         let sectionIndex = 0;
         sectionIndex < sections.length;
